@@ -18,10 +18,10 @@ k_handle = ctypes.WinDLL('kernel32.dll')
 
 # display message box, and return code
 response = u_handle.MessageBoxW(hWnd, lpText, lpCaption, uType)
-print("Response code: ", response)
+print(f"Response code: {response}")
 
 # Note for error code:
 # if code run line by line in an interactive session/interpreter, non-zero value returned
 # does not indicate script error, rather left-over error code from within session itself
 error = k_handle.GetLastError()
-print("Error code: ", error)
+print(f"Error code: {error}")
