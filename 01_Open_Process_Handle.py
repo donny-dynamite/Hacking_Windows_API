@@ -28,7 +28,7 @@ except ValueError as e:
     sys.exit(f"[!] Invalid integer, Error: {e}\n")
 
 
-# Define OpenProcess parameters
+# Define OpenProcess() parameters
 # Ref PROCESS_ALL_ACCESS: https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 
 PROCESS_ALL_ACCESS = (0x000F0000 | 0x00100000 | 0xFFFF)
@@ -42,4 +42,4 @@ if not response:
     error = k_handle.GetLastError()
     print(f"[!] OpenProcess() failed, Error Code: {error}")
 else:
-    print(f"[+] OpenProcess succeeded, Handle: {response}")
+    print(f"[+] OpenProcess() succeeded, Handle: {response}")
