@@ -1,5 +1,6 @@
 # module for WinAPI function calls
 import ctypes
+import sys
 
 # define parameters for MessageBoxW function call
 # https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messageboxw
@@ -12,16 +13,17 @@ lpText = 'Hello Text'
 lpCaption = 'Hello Caption'
 uType = 0x00000001
 
-# create handles to user32.dll (message box) and kernel32.dll (error code)
+# create handles to user32.dll, MessageBoxW()
 u_handle = ctypes.WinDLL('user32.dll')
-k_handle = ctypes.WinDLL('kernel32.dll')
 
 # display message box, and return code
 response = u_handle.MessageBoxW(hWnd, lpText, lpCaption, uType)
-print(f"Response code: {response}")
 
-# Note for error code:
-# if code run line by line in an interactive session/interpreter, non-zero value returned
-# does not indicate script error, rather left-over error code from within session itself
-error = k_handle.GetLastError()
-print(f"Error code: {error}")
+if not response:
+  # Error handling if unable to retrieve handle
+  k_handle = ctypes.WinDLL('kernel32.dll')
+  error = k_handle.GetLastError()
+  print(f"[!] MessageBoxW() failed, Error Code: {error}")
+  sys.exit(1)
+else:
+  print(f"[+] MessageBoxW() successful, Handle: {response}")
