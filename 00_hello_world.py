@@ -16,14 +16,15 @@ uType = 0x00000001
 # create handles to user32.dll, MessageBoxW()
 u_handle = ctypes.WinDLL('user32.dll')
 
-# display message box, and return code
-response = u_handle.MessageBoxW(hWnd, lpText, lpCaption, uType)
+# display message box
+ret_code = u_handle.MessageBoxW(hWnd, lpText, lpCaption, uType)
 
-if not response:
-  # Error handling if unable to retrieve handle
+if not ret_code:
+  # Error handling if unable to create MessageBoxW()
   k_handle = ctypes.WinDLL('kernel32.dll')
   error = k_handle.GetLastError()
-  print(f"[!] MessageBoxW() failed, Error Code: {error}")
+  print(f"[!] MessageBoxW() Failed, Error Code: {error}")
   sys.exit(1)
 else:
-  print(f"[+] MessageBoxW() successful, Handle: {response}")
+  # return response code for button click, not handle value
+  print(f"[+] MessageBoxW() Successful, Response Code: {ret_code}")
