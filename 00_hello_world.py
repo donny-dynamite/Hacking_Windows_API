@@ -1,30 +1,26 @@
 # module for WinAPI function calls
 import ctypes
-import sys
 
-# define parameters for MessageBoxW function call
-# https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messageboxw
+# load required DLL for MessageBoxW()
+user32 = ctypes.WinDLL('user32.dll')
 
-# Note for uType - MS doco defines 4-byte long integer in hex
-# but function can also be passed short-form hex, or corresponding integer
+# Ref: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messageboxw
+# Note for uType, doco defines 4-byte long integer in hex
+# can also passed short-form hex, or corresponding integer
 # ie 0x00000030 or 0x30 or 48 (decimal)
-hWnd = None    # not needed here
+hWnd = None
 lpText = 'Hello Text'
 lpCaption = 'Hello Caption'
 uType = 0x00000001
 
-# create handles to user32.dll, MessageBoxW()
-u_handle = ctypes.WinDLL('user32.dll')
+# call MessageBoxW()
+ret_code = user32.MessageBoxW(hWnd, lpText, lpCaption, uType)
 
-# display message box
-ret_code = u_handle.MessageBoxW(hWnd, lpText, lpCaption, uType)
-
-if not ret_code:
-  # Error handling if unable to create MessageBoxW()
-  k_handle = ctypes.WinDLL('kernel32.dll')
-  error = k_handle.GetLastError()
-  print(f"[!] MessageBoxW() Failed, Error Code: {error}")
-  sys.exit(1)
-else:
-  # return response code for button click, not handle value
+if ret_code:
+  # returns response code for button that was clicked, NOT handle value
   print(f"[+] MessageBoxW() Successful, Response Code: {ret_code}")
+else:
+  # Error handling if unable to create MessageBoxW()
+  kernel32 = ctypes.WinDLL('kernel32.dll')
+  error = kernel32.GetLastError()
+  print(f"[!] MessageBoxW() Failed, Error Code: {error}")
