@@ -1,10 +1,9 @@
 import ctypes
 import subprocess
-import sys
 
-k_handle = ctypes.WinDLL('kernel32.dll')
+kernel32 = ctypes.WinDLL('kernel32.dll')
 
-# Run PowerShell script - list PIDs, grouped by ProcessName
+# Run PowerShell script - list PIDs, grouped by ProcessName (raw string is okay here)
 script = r'''
 Get-Process | Group-Object ProcessName | % {
     [PSCustomObject]@{
@@ -14,32 +13,38 @@ Get-Process | Group-Object ProcessName | % {
 }
 '''
 
-result = subprocess.run(
-    ["powershell", "-command", script],
-    capture_output=True,
-    text=True
-)
+pid_list = subprocess.run(["powershell", "-command", script], capture_output=True, text=True)
+print(pid_list.stdout)
 
-print(result.stdout)
+# loop for valid integer to be entered
+while True:
+    try:
+        pid_value = int(input("Enter a single PID from above list: "))
+        if pid_value:
+            break
+        else:
+            print(f"Please enter single PID from above list")
+    except ValueError as e:
+        print(f"\n[!] Invalid Input, Error: {e}")
 
-try:
-    PID = int(input("Enter a single PID from above list: "))
-except ValueError as e:
-    sys.exit(f"[!] Invalid integer, Error: {e}\n")
 
 
-# Define OpenProcess() parameters
-# Ref PROCESS_ALL_ACCESS: https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+
+#########################
+##### OpenProcess() #####
+#########################
+# Ref: https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 
 PROCESS_ALL_ACCESS = (0x000F0000 | 0x00100000 | 0xFFFF)
 dwDesiredAccess = PROCESS_ALL_ACCESS
 bInheritHandle = False
-dwProcessId = PID
+dwProcessId = pid_value
 
-response = k_handle.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId)
-
-if not response:
-    error = k_handle.GetLastError()
-    print(f"[!] OpenProcess() failed, Error Code: {error}")
-else:
-    print(f"[+] OpenProcess() succeeded, Handle: {response}")
+try:
+    proc_handle = kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId)
+    if proc_handle:
+        print(f"\n[+] OpenProcess() Successful, Process Handle: {proc_handle}")
+    else:
+        raise ctypes.WinError()
+except Exception as e:
+    print(f"\n[!] OpenProcess() Failed. Error Code: {e.winerror}, Message: {e.strerror}")
