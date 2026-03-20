@@ -1,26 +1,49 @@
-# module for WinAPI function calls
-import ctypes
+"""
+Display Windows MessageBox using WinAPI via ctypes
+func() def to wrap MessageBoxW() API call
+"""
 
-# load required DLL for MessageBoxW()
+import ctypes
+from ctypes import wintypes
+
+
+###############################
+##### Function Signatures #####
+###############################
 user32 = ctypes.WinDLL('user32.dll')
 
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messageboxw
-# Note for uType, doco defines 4-byte long integer in hex
-# can also passed short-form hex, or corresponding integer
+user32.MessageBoxW.argtypes = [
+    wintypes.HWND,
+    wintypes.LPCWSTR,
+    wintypes.LPCWSTR,
+    wintypes.UINT
+]    
+user32.MessageBoxW.restype = wintypes.INT
+
+# define parameters
+# ref: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messageboxw
+#
+# whilst hWnd not necessary, explicity defined as standard
+#
+# for uType, doco defines 4-byte long integer in hex, can also pass short-form, or corresponding integer
 # ie 0x00000030 or 0x30 or 48 (decimal)
-hWnd = None
-lpText = 'Hello Text'
-lpCaption = 'Hello Caption'
-uType = 0x00000001
 
-# call MessageBoxW()
-ret_code = user32.MessageBoxW(hWnd, lpText, lpCaption, uType)
+global_hWnd = None 
+global_lpText = 'Hello Text'
+global_lpCaption = 'Hello Caption'
+global_uType = 0x00000001 # MB_OKCANCEL
 
-if ret_code:
-  # returns response code for button that was clicked, NOT handle value
-  print(f"[+] MessageBoxW() Successful, Response Code: {ret_code}")
-else:
-  # Error handling if unable to create MessageBoxW()
-  kernel32 = ctypes.WinDLL('kernel32.dll')
-  error = kernel32.GetLastError()
-  print(f"[!] MessageBoxW() Failed, Error Code: {error}")
+
+# func() def to call MessageBoxW()
+def msg_box(hWnd, lpText, lpCaption, uType):
+    ret = user32.MessageBoxW(hWnd, lpText, lpCaption, uType)
+    if ret == 0:
+        raise ctypes.WinError()
+    return ret
+
+
+try:
+    ret_code = msg_box(global_hWnd, global_lpText, global_lpCaption, global_uType)
+    print(f"\n[+] MessageBoxW() Successful, Response Code: {ret_code}")
+except OSError as e:
+    print(f"\n[!] MessageBowX() Failed, Error: {e}")
