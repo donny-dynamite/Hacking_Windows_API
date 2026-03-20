@@ -1,6 +1,10 @@
 """
 Open a handle to an existing process, using WinAPI via ctypes
 Calls PowerShell script to group PIDs by ProcessName
+
+Note: investigate refactoring with context manager
+- try/except/finally feels messy
+- may be better as with func() as var:
 """
 
 import ctypes
@@ -46,9 +50,11 @@ kernel32.OpenProcess.argtypes = [
 ]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype = wintypes.BOOL
+
 
 # define parameters
-#
 # Ref: https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 
 PROCESS_ALL_ACCESS = 0x1F0FFF
@@ -64,9 +70,19 @@ def open_proc(dwDesiredAccess, bInheritHandle, dwProcessId):
         raise ctypes.WinError()    
     return ret
 
+pHandle = None
 
 try:
     pHandle = open_proc(g_dwDesiredAccess, g_bInheritHandle, g_dwProcessId)
     print(f"\n[+] OpenProcess() Successful, Process Handle: {pHandle}")
 except OSError as e:
     print(f"\n[!] OpenProcess() Failed. Error: {e}")
+finally:
+    if pHandle not in (None, 0):
+        handle_close = kernel32.CloseHandle(pHandle)
+        if handle_close:
+            print(f"\n[+] CloseHandle() Successful, Handle: {pHandle}")
+            pHandle = None
+        else:
+            error = kernel32.GetLastError()
+            print(f"[!] CloseHandle() Failed, Error: {error}")
