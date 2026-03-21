@@ -41,7 +41,7 @@ while True:
 #################################
 ##### Function Signature(s) #####
 #################################
-kernel32 = ctypes.WinDLL('kernel32.dll')
+kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
 
 kernel32.OpenProcess.argtypes = [
     wintypes.DWORD,
