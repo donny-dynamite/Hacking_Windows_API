@@ -1,96 +1,119 @@
+'''
+Terminate process for a given window title
+
+API calls used:
+---------------
+FindWindowW()
+- retrieve window handle (HWND) for specified window title
+- uses Unicode variant to avoid encoding issues
+
+GetWindowThreadProcessId()
+- obtain process ID (PID) associated with window handle
+
+OpenProcess()
+- open a handle to target process using retrieved PID
+
+TerminateProcess()
+- terminate process associated with opened handle
+'''
+
 import ctypes
 from ctypes import wintypes
 import subprocess
 import sys
 
-'''
-API Calls to find process by Window Title, then terminate
-- FindWindowA()
-- GetWindowThreadProcessId()
-- OpenProcess()
-- TerminateProcess()
-'''
 
 # load required DLLs 
-user32 = ctypes.WinDLL('user32.dll')
-kernel32 = ctypes.WinDLL('kernel32.dll')
-
-
+user32   = ctypes.WinDLL('user32.dll',   use_last_error = True)
+kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error = True)
 
 
 ########################################
-###### FindWindowA() - user32.dll ######
+###### FindWindowW() - user32.dll ######
 ########################################
-
 '''
 Step 1: Enter process name -> check if exists
-Step 2: Return Window Titles as list
-Step 3: Select window based off index (0-base)
-Step 4: Open handle to selected item
+Step 2: Return window titles as list
+Step 3: Select title based off index (0-base)
+Step 4: Retrieve window handle (HWND) to selected title
 '''
 
 # Step 1: Enter process name -> check if exists
-procName = input("\nEnter name of process: ")
+proc_name = input("\nEnter name of process: ")
 
-check_script = f"Get-Process -Name '{procName}' -EA 0"
-check_result = subprocess.run(
-    ["powershell", "-NoProfile", "-Command", check_script],
+proc_check = subprocess.run(
+    ["powershell", "-NoProfile", "-Command", "Get-Process", "-Name", proc_name],
     capture_output = True, text = True
 )
 
-if not check_result.stdout.strip():
-    print(f"\n[!] ProcessName '{procName}' not found. Exiting.")
-    sys.exit(1)
+if not proc_check.stdout.strip():
+    sys.exit(f"\n[!] ProcessName '{proc_name}' not found. Exiting.")
 
-# Step 2: Return Window Titles as list
-ps_script = f"""
-    Get-Process -Name '{procName}' -EA 0 |
-    Where-Object {{$_.MainWindowTitle}} |
-    ForEach-Object {{$_.MainWindowTitle}}
-"""
 
-script_result = subprocess.run(
+# Step 2: Return window titles as list
+ps_script = f'''
+    Get-Process -Name "{proc_name}" -EA 0 |
+    Where-Object {{ $_.MainWindowTitle }} |
+    ForEach-Object {{ $_.MainWindowTitle }}
+'''
+
+ps_titles = subprocess.run(
     ["powershell", "-NoProfile", "-Command", ps_script],
-    capture_output=True, text=True
+    capture_output = True, text = True
 )
 
-window_titles = [line.strip() for line in script_result.stdout.splitlines() if line.strip()]
+window_titles = [line.strip() for line in ps_titles.stdout.splitlines() if line.strip()]
 
 if not window_titles:
-    print(f"[!] No visible windows found for process '{procName}': Exiting.")
-    sys.exit(1)
+    sys.exit(f"[!] No visible windows found for process '{proc_name}': Exiting.")
 else:
-    print("\nAvailable Window Titles:")
+    print("\nAvailable Window Titles:\n------------------------")
     for i, title in enumerate(window_titles, start=0):
         print(f"[{i}]: {title}")
 
-# Step 3: Select window based off index (0-base)
+
+# Step 3: Select title based off index (0-base)
 while True:
     try:
         window_choice = int(input("\nSelect number for window title: "))
         # if ((window_choice >= 0) and (window_choice < len(window_titles)):
         if 0 <= window_choice < len(window_titles):
-            selected_title = window_titles[window_choice]
+            title_choice = window_titles[window_choice]
             break
         else:
-            print(f"[!] Please enter a number between 0 and {len(window_titles)}.")
+            print(f"[!] Please enter a number between 0 and {len(window_titles) -1}.")
     except ValueError:
         print("[!] Invalid input. Please enter a number from above.")
 
 
-# Step 4: Open handle to selected item
-# Ref FindWindowA() - https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-findwindowa
-lpClassName = None
-lpWindowName = selected_title.encode('utf-8')
+# Step 4: Retrieve window handle (HWND) to selected title
+#
+# Ref FindWindowW() - https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-FindWindowW
 
-fwa_hWnd = user32.FindWindowA(lpClassName, lpWindowName)
+# def func() sigs and params
+user32.FindWindowW.argtypes = [
+    wintypes.LPCWSTR,   # lpClassName
+    wintypes.LPCWSTR    # lpWindowName
+]
+user32.FindWindowW.restype = wintypes.HWND
 
-if fwa_hWnd:
-    print(f"\n[+] FindowWindowA() Successful, Window Handle: {fwa_hWnd}\n")
-else:
-    error = kernel32.GetLastError()
-    print(f"\n[!] FindWindowA() Failed, Error Code: {error}\n")
-    sys.exit(1)
+g_lpClassName = None
+g_lpWindowName = title_choice
+
+
+# func() def to wrap FindWindowW()
+def find_window(lpClassName, lpWindowName):
+    ret = user32.FindWindowW(lpClassName, lpWindowName)
+    if not ret:
+        raise ctypes.WinError()
+    return ret
+
+
+try:
+    fwa_hWnd = find_window(g_lpClassName, g_lpWindowName)
+    print(f"\n[+] FindWindowW() Successful, Window Handle: {fwa_hWnd}\n")
+except OSError as e:
+    sys.exit(f"\n[!] FindWindowW() Failed, Error Code: {e}\n")
 
 
 
@@ -98,29 +121,37 @@ else:
 #####################################################
 ###### GetWindowThreadProcessId() - user32.dll ######
 #####################################################
+#
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowthreadprocessid
 # LPDWORD lpdwProcessId - output parameter, therefore value to be stored in prepared variable (DWORD)
 
-'''
-Step 1: Prep paramaters, inc output parameter
-Step 2: Call GetWindowThreadProcessId and store value in variable
-'''
+# def func() sigs and params
+user32.GetWindowThreadProcessId.argtypes =[
+    wintypes.HWND,      # hWnd
+    wintypes.LPDWORD    # lpdwProcessId
+]
+user32.GetWindowThreadProcessId.restype  = wintypes.DWORD
 
-# Step 1: Prep paramaters, inc variable to receive DWORD
-hWnd = fwa_hWnd
-lpdwProcessId = ctypes.wintypes.DWORD()
+g_hWnd = fwa_hWnd # from above ret for FindWindowW()
+g_lpdwProcessId = ctypes.wintypes.DWORD()
 
-# Step 2: Call GetWindowThreadProcessId and store value in variable
-thread_id = user32.GetWindowThreadProcessId(hWnd, ctypes.byref(lpdwProcessId))
-if thread_id:
+
+# func() def to wrap GetWindowThreadProcessId()
+def get_thread(hWnd, lpdwProcessId):
+    ret = user32.GetWindowThreadProcessId(hWnd, lpdwProcessId)
+    if not ret:
+        raise ctypes.WinError()
+    return ret
+ 
+ 
+try:
+    thread_id = get_thread(g_hWnd, ctypes.byref(g_lpdwProcessId))
     print(f"[+] GetWindowThreadProcessId() Successful:")
-    print(f"\tProcess: {procName}")
+    print(f"\tProcess: {proc_name}")
     print(f"\tThread ID: {thread_id}")
-    print(f"\tProcess ID: {lpdwProcessId.value}")
-else:
-    error = kernel32.GetLastError()
-    print(f"\n[!] GetWindowThreadProcessId() Failed, Error Code: {error}")
-    sys.exit(1)
+    print(f"\tProcess ID: {g_lpdwProcessId.value}")
+except OSError as e:
+    sys.exit(f"\n[!] GetWindowThreadProcessId() Failed, Error Code: {e}")
 
 
 
@@ -128,20 +159,37 @@ else:
 ##########################################
 ###### OpenProcess() - kernel32.dll ######
 ##########################################
+#
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess
 
-PROCESS_ALL_ACCESS = (0x000F0000 | 0x00100000 | 0xFFFF)
-dwDesiredAccess = PROCESS_ALL_ACCESS
-bInheritHandle = False
-dwProcessId = lpdwProcessId
+# def func() sigs and params
+kernel32.OpenProcess.argtypes = [
+    wintypes.DWORD, # dwDesiredAccess
+    wintypes.BOOL,  # bInheritHandle
+    wintypes.DWORD  # dwProcessId
+]
+kernel32.OpenProcess.restype = wintypes.HANDLE
 
-proc_handle = kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId)
+PROCESS_ALL_ACCESS = 0x1F0FFF
 
-if proc_handle:
-    print(f"\n[+] OpenProcess() Successfull, Process Handle: {proc_handle}")
-else:
-    error = kernel32.GetLastError()
-    print(f"\n[!] OpenProcess() Failed, Error Code: {error}")
+g_dwDesiredAccess = PROCESS_ALL_ACCESS
+g_bInheritHandle = False
+g_dwProcessId = g_lpdwProcessId.value   # from GetWindowThreadProcessId() above
+
+
+# func() def to wrap OpenProcess()
+def open_handle(dwDesiredAccess, bInheritHandle, dwProcessId):
+    ret = kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId)
+    if not ret:
+        raise ctypes.WinError()
+    return ret
+
+
+try:
+    proc_handle = open_handle(g_dwDesiredAccess, g_bInheritHandle, g_dwProcessId)
+    print(f"\n[+] OpenProcess() Successful, Process Handle: {proc_handle}")
+except OSError as e:
+    sys.exit(f"\n[!] OpenProcess() Failed, Error Code: {e}")
 
 
 
@@ -149,16 +197,36 @@ else:
 ###############################################
 ###### TerminateProcess() - kernel32.dll ######
 ###############################################
+#
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess
 
-hProcess = proc_handle
-uExitCode = 0
+# def func() sigs and params
+kernel32.TerminateProcess.argtypes = [
+    wintypes.HANDLE,    # hProcess
+    wintypes.UINT       # uExitCode
+]
+kernel32.TerminateProcess.restype = wintypes.BOOL
 
-term_proc = kernel32.TerminateProcess(hProcess, uExitCode)
+# for final cleanup
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype = wintypes.BOOL
 
-if term_proc:
-    print(f"\n[+] TerminateProcess() Successful, Process ID killed: {dwProcessId.value}")
-else:
-    error = kernel32.GetLastError()
-    print(f"\n[!] TerminateProcess() Failed, Error Code: {error}")
-    sys.exit(1)
+g_hProcess = proc_handle    # from OpenProcess() above
+g_uExitCode = 0
+
+
+def kill_proc(hProcess, uExitCode):
+    ret = kernel32.TerminateProcess(hProcess, uExitCode)
+    if not ret:
+        raise ctypes.WinError()
+    return ret
+
+
+try:
+    term_proc = kill_proc(g_hProcess, g_uExitCode)
+    print(f"\n[+] TerminateProcess() Successful, Process ID killed: {g_dwProcessId}")
+except OSError as e:
+    sys.exit(f"\n[!] TerminateProcess() Failed, Error Code: {e}")
+finally:
+    if g_hProcess:
+        kernel32.CloseHandle(g_hProcess)
