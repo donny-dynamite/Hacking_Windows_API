@@ -10,7 +10,7 @@ from ctypes import wintypes
 ###############################
 ##### Function Signatures #####
 ###############################
-user32 = ctypes.WinDLL('user32.dll')
+user32 = ctypes.WinDLL('user32.dll', use_last_error=True)
 
 user32.MessageBoxW.argtypes = [
     wintypes.HWND,
