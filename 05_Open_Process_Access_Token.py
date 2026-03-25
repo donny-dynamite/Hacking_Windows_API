@@ -82,7 +82,6 @@ kernel32.OpenProcess.argtypes = [
 ]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 
-
 # def params
 PROCESS_ALL_ACCESS = 0x1F0FFF # BitMask value
 g_dwDesiredAccess = PROCESS_ALL_ACCESS
