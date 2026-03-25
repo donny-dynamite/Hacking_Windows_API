@@ -24,8 +24,8 @@ import sys
 
 
 # load required DLLs 
-user32   = ctypes.WinDLL('user32.dll',   use_last_error = True)
-kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error = True)
+user32   = ctypes.WinDLL('user32.dll',   use_last_error=True)
+kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
 
 
 ########################################
@@ -43,7 +43,7 @@ proc_name = input("\nEnter name of process: ")
 
 proc_check = subprocess.run(
     ["powershell", "-NoProfile", "-Command", "Get-Process", "-Name", proc_name],
-    capture_output = True, text = True
+    capture_output=True, text=True
 )
 
 if not proc_check.stdout.strip():
@@ -59,7 +59,7 @@ ps_script = f'''
 
 ps_titles = subprocess.run(
     ["powershell", "-NoProfile", "-Command", ps_script],
-    capture_output = True, text = True
+    capture_output=True, text=True
 )
 
 window_titles = [line.strip() for line in ps_titles.stdout.splitlines() if line.strip()]
