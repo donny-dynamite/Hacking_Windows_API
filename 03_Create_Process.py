@@ -15,7 +15,7 @@ from ctypes.wintypes import HANDLE,DWORD,LPWSTR,WORD,LPBYTE,LPVOID,BOOL
 import subprocess
 import sys
 
-kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error = True)
+kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
 
 
 ######################################################
@@ -142,9 +142,8 @@ def ps_script(pid, tid):
     
     # confirm PID is associated with cmd.exe
     proc_check = subprocess.run(
-        ["powershell", "-NoProfile", "-Command",
-        f"Get-Process -ID {pid}"],
-        capture_output = True, text = True
+        ["powershell", "-NoProfile", "-Command", f"Get-Process -ID {pid}"],
+        capture_output=True, text=True
     )
     print("\n[+] Process Info:")
     print(f"PS> Get-Process -ID {pid}\n-----------------------\n")
@@ -152,9 +151,8 @@ def ps_script(pid, tid):
     
     # confirm TID match on that returned from CreateProcessW(), as proc will have many un-related threads
     thread_check = subprocess.run(
-        ["powershell", "-NoProfile", "-Command",
-        f"(Get-Process -ID {pid}).Threads | ? {{ $_.Id -eq {tid} }}"],
-        capture_output = True, text = True
+        ["powershell", "-NoProfile", "-Command", f"(Get-Process -ID {pid}).Threads | ? {{ $_.Id -eq {tid} }}"],
+        capture_output=True, text=True
     )
     print(f"\n[+] Thread Info:")
     print(f"PS> (Get-Process -ID {pid}).Threads | Where-Object {{ $_.Id -eq {tid} }}")
