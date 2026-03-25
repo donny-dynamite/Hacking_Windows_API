@@ -6,6 +6,22 @@ Steps:
 - PowerShell script to list PIDs, group-by ProcessName
 - OpenProcess() for given PID
 - OpenProcessToken() for returned process handle
+
+*****************
+***** NOTE: *****
+*****************
+- course content shows kernel32.OpenProcessToken() calls
+- however MS Doco shows OpenProcessToken() as part of advapi32.dll
+
+Inspecting kernel32.dll in 'Dependencies' (OS fork of Dependency Walker) shows following
+- export icon as 'C->' indicating forwarded function call
+- VirtualAddress column as 'api-ms-win-core-processthreads-11-1-0.OpenProcessToken'
+- indicates API Set DLL usage to abstract actual .dll call for exported functions
+- inspecting advapi32.dll shows OpenProcessToken() export
+- likely path: kernel32.dll -> api-ms-win-core-processthreads-* -> advapi32.dll
+
+In short, kernel32.OpenProcessToken() works but implements API forwarding
+- therefore explicitly using advapi32.dll from here-on
 """
 
 import ctypes
