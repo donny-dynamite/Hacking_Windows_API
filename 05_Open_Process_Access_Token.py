@@ -76,9 +76,6 @@ kernel32.OpenProcess.argtypes = [
 ]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 
-# for handle cleanup
-kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-kernel32.CloseHandle.restype = wintypes.BOOL
 
 # def params
 PROCESS_ALL_ACCESS = 0x1F0FFF # BitMask value
@@ -90,24 +87,60 @@ g_dwProcessId = pid_value
 # func() wrapper for OpenProcess()
 def open_proc(dwDesiredAccess, bInheritHandle, dwProcessId):
     ret = kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId)
+
     if not ret:
         raise ctypes.WinError()    
-    return ret
 
+    '''
+    Force return type of HANDLE, otherwise ctypes converts to int
 
-proc_handle = None
+    In final CloseHandle()
+    - ensures consistency when calling CloseHandle() during cleanup
+    - otherwise proc_handle passed as type 'int', and g_TokenHandle passed as HANDLE object
+    - prevents needing to check type()/hasattr()/getattr() when calling CloseHandle()
+    '''
+    return wintypes.HANDLE(ret)
 
 
 try:
     proc_handle = open_proc(g_dwDesiredAccess, g_bInheritHandle, g_dwProcessId)
-    print(f"\n[+] OpenProcess() Successful, Process Handle: {proc_handle}")
+    print(f"\n[+] OpenProcess() Successful, Process Handle: {proc_handle.value}")
 
 except OSError as e:
-    print(f"\n[!] OpenProcess() Failed. Error: {e}")
+    sys.exit(f"\n[!] OpenProcess() Failed. Error: {e}")
 
 
 
+
+#########################
+##### CloseHandle() #####
+#########################
+#
+# For cleaning up handles at the very end
+# - actual HANDLE objects passed
+# - due to 'return wintypes.HANDLE(ret)' in OpenProcess() above
+#
+# Ref: https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-closehandle#return-value
+
+# func() sigs
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype = wintypes.BOOL
+
+
+# func() wrapper for CloseHandle()
+def close_handle(handle, name="Handle"):
+    if handle:
+        if kernel32.CloseHandle(handle):
+            print(f"[+] CloseHandle() Successful, {name} Handle: {handle.value}")
+            return None
             
+        else:
+            print(f"[!] CloseHandle() Failed, {name}: {handle.value}, Error: {kernel32.GetLastError()}")
+            return handle
+
+
+
+
 #############################################
 ##### OpenProcessToken() - advapi32.dll #####
 #############################################
@@ -133,40 +166,24 @@ g_TokenHandle = wintypes.HANDLE()
 
 
 # func() wrapper for OpenProcessToken()
+#
+# Note:
+# - changing from standardised structure, and not returning data-type
+# - just calling to update g_TokenHandle in place
 def open_proc_token(ProcessHandle, DesiredAccess, TokenHandle):
-    ret = advapi32.OpenProcessToken(ProcessHandle, DesiredAccess, ctypes.byref(TokenHandle))
-    if not ret:
-        raise ctypes.WinError()    
-    return ret
+    if not advapi32.OpenProcessToken(ProcessHandle, DesiredAccess, ctypes.byref(TokenHandle)):
+        raise ctypes.WinError()
 
 
 try:
-    opt = open_proc_token(g_ProcessHandle, g_DesiredAccess, g_TokenHandle)
-    print(f"[+] OpenProcessToken() Successful, Return Code: {opt}")
+    open_proc_token(g_ProcessHandle, g_DesiredAccess, g_TokenHandle)
+    print(f"[+] OpenProcessToken() Successful, AccessToken Handle: {g_TokenHandle.value}")
 
 except OSError as e:
-    print(f"[!] OpenProcessToken() Failed, Error: {e}")
+    sys.exit(f"[!] OpenProcessToken() Failed, Error: {e}")
 
 finally:
-    # probably put this in a separate fun() to make simpler
     print("\n[!] Closing opened handles:\n---------------------------")
 
-    # close HANDLE to Process
-    if proc_handle not in (None, 0):
-        handle_close = kernel32.CloseHandle(proc_handle)
-        if handle_close:
-            print(f"[+] CloseHandle() on Process Successful, Handle: {proc_handle}")
-            proc_handle = None
-        else:
-            error = kernel32.GetLastError()
-            print(f"[!] CloseHandle() on Process Failed, Error: {error}")
-
-    # close HANDLE to Access Token
-    if g_TokenHandle not in (None, 0):
-        handle_close = kernel32.CloseHandle(g_TokenHandle)
-        if handle_close:
-            print(f"[+] CloseHandle() on Access Token Successful, Handle: {g_TokenHandle.value}")
-            g_TokenHandle = None
-        else:
-            error = kernel32.GetLastError()
-            print(f"[!] CloseHandle() on Access Token Failed, Error: {error}")
+    close_handle(proc_handle, "Process")
+    close_handle(g_TokenHandle, "AccessToken")
