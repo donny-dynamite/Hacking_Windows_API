@@ -64,7 +64,13 @@ if not valid_pid.stdout.strip():
 ##### OpenProcess() - kernel32.dll #####
 ########################################
 # 
-# return HANDLE to open process
+# Return HANDLE to open process
+# - force return type of HANDLE, otherwise ctypes converts to int
+#
+# In final CloseHandle()
+# - ensures consistency when calling CloseHandle() during cleanup
+# - otherwise proc_handle passed as type 'int', and g_TokenHandle passed as HANDLE object
+# - prevents needing to check type()/hasattr()/getattr() when calling CloseHandle()
 #
 # Ref: https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 
@@ -91,14 +97,6 @@ def open_proc(dwDesiredAccess, bInheritHandle, dwProcessId):
     if not ret:
         raise ctypes.WinError()    
 
-    '''
-    Force return type of HANDLE, otherwise ctypes converts to int
-
-    In final CloseHandle()
-    - ensures consistency when calling CloseHandle() during cleanup
-    - otherwise proc_handle passed as type 'int', and g_TokenHandle passed as HANDLE object
-    - prevents needing to check type()/hasattr()/getattr() when calling CloseHandle()
-    '''
     return wintypes.HANDLE(ret)
 
 
