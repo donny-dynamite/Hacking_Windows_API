@@ -49,8 +49,7 @@ while True:
 ##### OpenProcess() - kernel32.dll #####
 ########################################
 # 
-# return HANDLE to open process
-#
+# Return HANDLE to open process
 # Ref: https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 
 # func() sigs
@@ -97,9 +96,9 @@ except OSError as e:
 ##### OpenProcessToken() - advapi32.dll #####
 #############################################
 # 
-# return Handle to Access Token ... or rather:
+# Return Handle to Access Token:
 # - update Pointer var (TokenHandle) to contain HANDLE
-# - that refers to Access Token for given process
+# - HANDLE refers to Access Token for given process
 #
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken#return-value
 
