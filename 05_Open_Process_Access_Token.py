@@ -1,5 +1,5 @@
 """
-Open Access Token for a given process
+Open Access Token for a given process - display privileges
 - extends on previous Open_Process_Handle.py
 
 Steps:
@@ -18,7 +18,15 @@ kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
 advapi32 = ctypes.WinDLL('advapi32.dll', use_last_error=True)
 
 
-# Run PowerShell script - list PIDs, grouped by ProcessName (raw string is okay here)
+################################
+##### PowerShell script(s) #####
+################################
+#
+# Note: currently not validating entered PID !!
+# - if PID non-existant, will continue on with script
+# - multiple "raise ctypes.WinError()" calls will be made
+
+# list PIDs, grouped by ProcessName (raw string is okay here)
 script = r'''
 Get-Process | Group-Object ProcessName | % {
     [PSCustomObject]@{
@@ -49,7 +57,8 @@ while True:
 ##### OpenProcess() - kernel32.dll #####
 ########################################
 # 
-# Return HANDLE to open process
+# return HANDLE to open process
+#
 # Ref: https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 
 # func() sigs
@@ -96,9 +105,9 @@ except OSError as e:
 ##### OpenProcessToken() - advapi32.dll #####
 #############################################
 # 
-# Return Handle to Access Token:
+# return Handle to Access Token ... or rather:
 # - update Pointer var (TokenHandle) to contain HANDLE
-# - HANDLE refers to Access Token for given process
+# - that refers to Access Token for given process
 #
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken#return-value
 
@@ -118,25 +127,39 @@ g_TokenHandle = wintypes.HANDLE()
 
 # func() wrapper for OpenProcessToken()
 def open_proc_token(ProcessHandle, DesiredAccess, TokenHandle):
-    ret = advapi32.OpenProcessToken(ProcessHandle, DesiredAccess, ctypes.byref(g_TokenHandle))
+    ret = advapi32.OpenProcessToken(ProcessHandle, DesiredAccess, ctypes.byref(TokenHandle))
     if not ret:
         raise ctypes.WinError()    
     return ret
 
 
 try:
-    opt = open_proc_token(g_ProcessHandle, g_DesiredAccess, g_DesiredAccess)
+    opt = open_proc_token(g_ProcessHandle, g_DesiredAccess, g_TokenHandle)
     print(f"[+] OpenProcessToken() Successful, Return Code: {opt}")
 
 except OSError as e:
     print(f"[!] OpenProcessToken() Failed, Error: {e}")
 
 finally:
+    # probably put this in a separate fun() to make simpler
+    print("\n[!] Closing opened handles:\n---------------------------")
+
+    # close HANDLE to Process
     if proc_handle not in (None, 0):
         handle_close = kernel32.CloseHandle(proc_handle)
         if handle_close:
-            print(f"\n[+] CloseHandle() Successful, Handle: {proc_handle}")
+            print(f"[+] CloseHandle() on Process Successful, Handle: {proc_handle}")
             proc_handle = None
         else:
             error = kernel32.GetLastError()
-            print(f"[!] CloseHandle() Failed, Error: {error}")
+            print(f"[!] CloseHandle() on Process Failed, Error: {error}")
+
+    # close HANDLE to Access Token
+    if g_TokenHandle not in (None, 0):
+        handle_close = kernel32.CloseHandle(g_TokenHandle)
+        if handle_close:
+            print(f"[+] CloseHandle() on Access Token Successful, Handle: {g_TokenHandle.value}")
+            g_TokenHandle = None
+        else:
+            error = kernel32.GetLastError()
+            print(f"[!] CloseHandle() on Access Token Failed, Error: {error}")
