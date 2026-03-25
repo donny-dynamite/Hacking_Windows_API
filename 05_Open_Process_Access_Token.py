@@ -1,13 +1,11 @@
 """
-
-Open Access Token for a given process - display privileges
+Open Access Token for a given process
 - extends on previous Open_Process_Handle.py
 
 Steps:
 - PowerShell script to list PIDs, group-by ProcessName
 - OpenProcess() for given PID
 - OpenProcessToken() for returned process handle
-
 """
 
 import ctypes
