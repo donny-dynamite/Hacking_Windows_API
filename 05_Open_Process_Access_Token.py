@@ -147,6 +147,12 @@ def close_handle(handle, name="Handle"):
 # - update Pointer var (TokenHandle) to contain HANDLE
 # - that refers to Access Token for given process
 #
+# g_ProcessHandle param not defined, as proc_handle exists
+# 
+# open_proc_token() wrapper refactored as such
+# - no need to define-param or pass-arg ProcessHandle, handled in internal OpenProcessToken() call
+# - no type returned, only called to update g_TokenHandle in place
+#
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken#return-value
 
 # func() sigs
@@ -158,23 +164,18 @@ advapi32.OpenProcessToken.argtypes = [
 advapi32.OpenProcessToken.restype = wintypes.BOOL
 
 # def params
-g_ProcessHandle = proc_handle
 g_DesiredAccess = 0xF01FF # BitMask for TOKEN_ALL_ACCESS
 g_TokenHandle = wintypes.HANDLE()
 
 
 # func() wrapper for OpenProcessToken()
-#
-# Note:
-# - changing from standardised structure, and not returning data-type
-# - just calling to update g_TokenHandle in place
-def open_proc_token(ProcessHandle, DesiredAccess, TokenHandle):
-    if not advapi32.OpenProcessToken(ProcessHandle, DesiredAccess, ctypes.byref(TokenHandle)):
+def open_proc_token(DesiredAccess, TokenHandle):
+    if not advapi32.OpenProcessToken(proc_handle, DesiredAccess, ctypes.byref(TokenHandle)):
         raise ctypes.WinError()
 
 
 try:
-    open_proc_token(g_ProcessHandle, g_DesiredAccess, g_TokenHandle)
+    open_proc_token(g_DesiredAccess, g_TokenHandle)
     print(f"[+] OpenProcessToken() Successful, AccessToken Handle: {g_TokenHandle.value}")
 
 except OSError as e:
