@@ -11,7 +11,7 @@ Steps:
 import ctypes
 from ctypes import wintypes
 import subprocess
-
+import sys
 
 # import DLLs
 kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
@@ -22,11 +22,11 @@ advapi32 = ctypes.WinDLL('advapi32.dll', use_last_error=True)
 ##### PowerShell script(s) #####
 ################################
 #
-# Note: currently not validating entered PID !!
-# - if PID non-existant, will continue on with script
-# - multiple "raise ctypes.WinError()" calls will be made
+# - list PIDs, grouped by ProcessName (raw string is okay here)
+# - loop for valid integer to be entered
+# - validate entered value exists as a PID
 
-# list PIDs, grouped by ProcessName (raw string is okay here)
+# list PIDs, groupBy ProcessName
 script = r'''
 Get-Process | Group-Object ProcessName | % {
     [PSCustomObject]@{
@@ -36,9 +36,9 @@ Get-Process | Group-Object ProcessName | % {
 }
 '''
 
-pid_list = subprocess.run(["powershell", "-command", script], capture_output=True, text=True)
+pid_list = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True)
 print(pid_list.stdout)
-
+ 
 # loop for valid integer to be entered
 while True:
     try:
@@ -49,6 +49,13 @@ while True:
             print(f"\nPlease enter single PID from above list")
     except ValueError as e:
         print(f"\n[!] Invalid Input, Error: {e}")
+
+# validate entered PID
+valid_pid = subprocess.run(["powershell", "-NoProfile", "-Command", f"Get-Process -ID {pid_value}"],
+                            capture_output=True, text=True)
+
+if not valid_pid.stdout.strip():
+    sys.exit(f"[!] PID {pid_value} non-existant. Exiting")
 
 
 
