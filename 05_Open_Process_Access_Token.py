@@ -1,5 +1,5 @@
 """
-Open Access Token for a given process - display privileges
+Open Access Token for a given process
 - extends on previous Open_Process_Handle.py
 
 Steps:
@@ -16,7 +16,7 @@ Steps:
 Inspecting kernel32.dll in 'Dependencies' (OS fork of Dependency Walker) shows following
 - export icon as 'C->' indicating forwarded function call
 - VirtualAddress column as 'api-ms-win-core-processthreads-11-1-0.OpenProcessToken'
-- indicates API Set DLL usage to abstract actual .dll call for exported functions
+- indicates API Set DLL usage, to abstract actual .dll call for exported functions
 - inspecting advapi32.dll shows OpenProcessToken() export
 - likely path: kernel32.dll -> api-ms-win-core-processthreads-* -> advapi32.dll
 
@@ -39,8 +39,8 @@ advapi32 = ctypes.WinDLL('advapi32.dll', use_last_error=True)
 ################################
 #
 # - list PIDs, grouped by ProcessName (raw string is okay here)
-# - loop for valid integer to be entered
-# - validate entered value exists as a PID
+# - loop for a valid integer to be entered
+# - validate entered integer exists as a PID in tasklist/Get-Process
 
 # list PIDs, groupBy ProcessName
 script = r'''
@@ -81,10 +81,10 @@ if not valid_pid.stdout.strip():
 ########################################
 # 
 # Return HANDLE to open process
-# - force return type of HANDLE, otherwise ctypes converts to int
+# - force return type of HANDLE, because otherwise ctypes converts to int
 #
-# In final CloseHandle()
-# - ensures consistency when calling CloseHandle() during cleanup
+# This is done for easing Handle cleanup - CloseHandle()
+# - ensures consistency when calling CloseHandle() multiple times
 # - otherwise proc_handle passed as type 'int', and g_TokenHandle passed as HANDLE object
 # - prevents needing to check type()/hasattr()/getattr() when calling CloseHandle()
 #
@@ -112,6 +112,7 @@ def open_proc(dwDesiredAccess, bInheritHandle, dwProcessId):
     if not ret:
         raise ctypes.WinError()    
 
+    # forcing HANDLE return type
     return wintypes.HANDLE(ret)
 
 
@@ -125,9 +126,9 @@ except OSError as e:
 
 
 
-#########################
-##### CloseHandle() #####
-#########################
+########################################
+##### CloseHandle() - kernel32.dll #####
+########################################
 #
 # For cleaning up handles at the very end
 # - actual HANDLE objects passed
