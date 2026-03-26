@@ -3,13 +3,11 @@ Notes from Brandon Dennis's course - Hacking the Windows API with Python (Udemy)
 
 <br><br><br>
 
-**Observed Caveats:**
-
-Possibly due to age of course content, there are a few observed 'discrepencies' with the course content, and attempting to do the following on a 'modern' Windows 11 machine. 
+**Observed caveats and things to watch out for**
 
 <br>
 
-Things to look out for:
+
 
 **[+]** When deciding between ```ApiFunctionA()``` vs ```ApiFunctionW()```, its likely simpler to choose the Unicode variant ```W``` vs the ANSI variant ```A```, as this prevents needing to re-encode string values to utf-8.
 
@@ -65,14 +63,18 @@ To explicitly force the return type to be of type HANDLE (c_void_p), then return
 
 **[+]** ```OpenProcessToken()``` via ```kernel32.dll``` or ```advapi32.dll```
 
-Course content shows ```kernel32.OpenProcessToken()``` calls
-- however MS Doco shows ```OpenProcessToken()``` as part of advapi32.dll
+```OpenProcessToken()``` can be called via ```kernel32.dll```, ie 
+```
+kernel32 = ctypes.WinDLL('kernel32.dll')
+kernel32.OpenProcessToken()
+```
+- however MS Doco shows ```OpenProcessToken()``` as part of ```advapi32.dll```
 
 Inspecting ```kernel32.dll``` in 'Dependencies' (OS fork of Dependency Walker) shows following
 - export icon as ```C->``` indicating forwarded function call
 - ```VirtualAddress``` column as ```api-ms-win-core-processthreads-11-1-0.OpenProcessToken```
 - indicates API Set DLL usage, to abstract actual .dll call for exported functions
 - inspecting ```advapi32.dll``` shows ```OpenProcessToken()``` export
-- likely path: kernel32.dll -> api-ms-win-core-processthreads-* -> advapi32.dll
+- likely path: ```kernel32.dll``` -> ```api-ms-win-core-processthreads-*``` -> ```advapi32.dll```
 
-In short, ```kernel32.OpenProcessToken()``` works but due to implementing API forwarding
+In short, ```kernel32.OpenProcessToken()``` works, but this is due to  API forwarding
