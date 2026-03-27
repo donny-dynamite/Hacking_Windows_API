@@ -90,6 +90,7 @@ MS doco describes:
 This function will still return non-zero, even if the checked privilege is not listed in the ``` Access Token``` at all (enabled, or disabled). 
 
 eg, ```vlc.exe``` will not have ```SeDebugPrivilege``` in its ```Access Token```, but ```PrivilegeCheck()``` will still return non-zero (_successful_)
+
 Another example of misleading non-zero return values:
 ```
 > if not advapi32.PrivilegeCheck(TokenHandle, ctypes.byref(requiredPrivileges), ctypes.byref(pfResult)):
