@@ -78,3 +78,30 @@ Inspecting ```kernel32.dll``` in 'Dependencies' (OS fork of Dependency Walker) s
 - likely path: ```kernel32.dll``` -> ```api-ms-win-core-processthreads-*``` -> ```advapi32.dll```
 
 In short, ```kernel32.OpenProcessToken()``` works, but this is due to  API forwarding
+
+
+<br>
+
+**[+]** ```PrivilegeCheck()```
+MS doco describes:
+
+"_If the function succeeds, the return value is nonzero. If the function fails, the return value is zero._"
+
+This function will still return non-zero, even if the checked privilege is not listed in the ``` Access Token``` at all (enabled, or disabled). 
+
+eg, ```vlc.exe``` will not have ```SeDebugPrivilege``` in its ```Access Token```, but ```PrivilegeCheck()``` will still return non-zero (_successful_)
+Another example of misleading non-zero return values:
+```
+> if not advapi32.PrivilegeCheck(TokenHandle, ctypes.byref(requiredPrivileges), ctypes.byref(pfResult)):
+    raise ctypes.WinError()
+```
+
+The function call will only fail if there is an API-level issue, such as an invalid Token Handle or bad pointer.
+
+Additionally, **pfResult** returns TRUE if the all/any of the privileges are enabled
+- however FALSE does not distinguish between ```present + disabled```, versus ```missing completely```
+
+**Alternatively:**
+- Use GetTokenInformation(TokenHandle, TokenPrivileges, ...)
+- Enumerate all LUIDs in the token
+- Compare with the LUID you care about
