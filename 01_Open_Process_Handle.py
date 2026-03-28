@@ -48,9 +48,7 @@ while True:
 
 
 # validate entered PID
-valid_pid = subprocess.run(["powershell", "-NoProfile", "-Command", f"Get-Process -ID {pid_value}"],
-                            capture_output=True, text=True)
-
+valid_pid = subprocess.run(["powershell", "-NoProfile", "-Command", f"Get-Process -ID {pid_value}"], capture_output=True, text=True)
 if not valid_pid.stdout.strip():
     sys.exit(f"[!] PID {pid_value} non-existant. Exiting")
 
