@@ -61,6 +61,14 @@ To explicitly force the return type to be of type HANDLE (c_void_p), then return
 
 <br>
 
+**[+]** ```kernel32.GetLastError()``` vs ```ctypes.get_last_error()```
+```
+TO DO - fill this in here
+pro of ctypes.get_last_error() being cached after API call, vs possibility of GetLastError() being overwritten in between actual error and function call
+```
+
+<br>
+
 **[+]** ```OpenProcessToken()``` via ```kernel32.dll``` or ```advapi32.dll```
 
 ```OpenProcessToken()``` can be called via ```kernel32.dll```, ie 
