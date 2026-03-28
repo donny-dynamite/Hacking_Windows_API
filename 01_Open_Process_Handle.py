@@ -38,10 +38,11 @@ print(pid_list.stdout)
 while True:
     try:
         pid_value = int(input("\nPlease enter a valid PID: "))
-        if pid_value > 0:
-            break
-        else:
-            print(f"\nPlease enter a valid PID: ")
+        if pid_value <= 0:
+            print("[!] Please enter a positive integer: ")
+            continue
+        break
+
     except ValueError as e:
         print(f"\n[!] Invalid Input, Error: {e}")
 
