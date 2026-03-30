@@ -1,14 +1,14 @@
 """
-Enumerate all privileges for a given process' Access Token
-- addresses issue with 06_Check_Access_Token_Privileges, where PrivilegeCheck() returns TRUE even if privilege is not listed in access token at all
-- accepts user-input to search for specified privilege
+Enumerate all privileges for a given process
+- addresses issue with 06_Check_Access_Token_Privileges
+- where PrivilegeCheck() returns TRUE, even if priv not listed in access token at all
 
 Steps:
 - PowerShell script to list PIDs, group-by ProcessName
-- OpenProcess(), return HANDLE to process
-- OpenProcessToken(), return HANDLE to access token
-- GetTokenInformation(TokenPrivileges), return access token privileges
-- LookupPrivilegeNameW(), map returned LUIDs to human-readable form
+- OpenProcess() for given PID
+- OpenProcessToken() for returned process handle
+- GetTokenInformation(TokenPrivileges)
+- LookupPrivilegeNameW()
 """
 
 import ctypes
@@ -68,6 +68,7 @@ if not valid_pid.stdout.strip():
 ##### CONSTANTS #####
 #####################
 
+PRIVILEGE_SET_ALL_NECESSARY = 0x01  # PRIVILEGE_SET()
 SE_PRIVILEGE_ENABLED	    = 0X02  # LUID_AND_ATTRIBUTES()
 SE_PRIVILEGE_DISABLED	    = 0X00  # LUID_AND_ATTRIBUTES()
 
@@ -90,17 +91,6 @@ SE_PRIVILEGE_DISABLED	    = 0X00  # LUID_AND_ATTRIBUTES()
 # if (LowPart == 0) and (HighPart == 0):
 #     sys.exit(f"[!] Error, LUID not found")
 
-# Note: TOKEN_PRIVILEGES() -> _fields_ = ("Privileges", LUID_AND_ATTRIBUTES * 1)
-#
-# - this is NOT defining a sub/nested-structure
-# - it is defining a variable-length array, with LUID_AND_ATTRIBUTES structs as elements
-# - workaround to create array of 1 element, as ctypes does not support variable arrays
-# - array of 1-element defined, buffer retrieved, then struct re-cast with proper length
-#
-# Here, TOKEN_PRIVILEGES_BASE defined without LUID_AND_ATTRIBUTES array, as place holder to retrieve PrivilegeCount
-# subsequent TOKEN_PRIVILEGES struct will be defined with correct size
-# _fields_ ("Privileges", LUID_AND_ATTRIBUTES * array_length)
-
 class LUID(ctypes.Structure):
 	_fields_ = [
 	("LowPart",		wintypes.DWORD),
@@ -113,12 +103,6 @@ class LUID_AND_ATTRIBUTES(ctypes.Structure):
 	("Attributes", 	wintypes.DWORD)
 	]
 
-# place-holder for variable-length array
-class TOKEN_PRIVILEGES_BASE(ctypes.Structure):
-    _fields_ = [
-    ("PrivilegeCount",  wintypes.DWORD),
-    ]
-
 
 
 
@@ -127,7 +111,8 @@ class TOKEN_PRIVILEGES_BASE(ctypes.Structure):
 ########################################
 #
 # For clean-up of open handles at the end of execution
-# - actual 'HANDLE' objects passed in from OpenProcess() -> return wintypes.HANDLE(ret)
+# - actual HANDLE objects passed in from OpenProcess()
+# - 'return wintypes.HANDLE(ret)' 
 #
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-closehandle#return-value
 
@@ -171,7 +156,7 @@ kernel32.OpenProcess.restype = wintypes.HANDLE
 
 # def params
 # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-PROCESS_ALL_ACCESS = 0x1F0FFF # higher chane of failure if not run elevated, PQLI above as 'safer' alternative
+PROCESS_ALL_ACCESS = 0x1F0FFF # BitMask value
 g_dwDesiredAccess = PROCESS_ALL_ACCESS
 g_bInheritHandle = False
 g_dwProcessId = pid_value
@@ -204,7 +189,7 @@ except OSError as e:
 #
 # Not defining the following:
 # - g_ProcessHandle var, as proc_handle exists
-# - OpenProcessToken() wrapper as not returning any value, only updating g_TokenHandle in-place
+# - OpenProcessToken() wrapper, as not returning any value, only updating g_TokenHandle in-place
 #
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken#return-value
 
@@ -241,24 +226,25 @@ except OSError as e:
 # - func() converts human-readable priv into LUID
 # - eg from: SeDebugPrivilege -> to: LUID 
 #
+# Then included in struct, which is passed to PrivilegeCheck()
+#
 # NOTE: This func() does NOT check if priv exists in access token
-# - only returns if a LUID exists on system, for a given privilege
+# - only returns if there is a system LUID for a given privilege
 #
 # https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-lookupprivilegevaluew#return-value
 
 # func() sigs
 advapi32.LookupPrivilegeValueW.argtypes = [
 	wintypes.LPCWSTR,   			# lpSystemName (can be None)
-	wintypes.LPCWSTR,				  # lpName (priv name, eg "SeDebugPrivilege")
-	ctypes.POINTER(LUID)	    # [o] lpLuid
+	wintypes.LPCWSTR,				# lpName (priv name, eg "SeDebugPrivilege")
+	ctypes.POINTER(LUID)	        # lpLuid (output)
 ]
 advapi32.LookupPrivilegeValueW.restype = wintypes.BOOL
 
 # def params
 g_lpSystemName = None
-g_lpName = input("\nEnter privilege name (eg, SeDebugPrivilege): ") # case-insensitive match performed later
+g_lpName = input("\nEnter privilege name (eg, SeDebugPrivilege): ") # case-insensitive
 g_lpLuid = LUID()                       # instantiate LUID struct
-
 
 try:
     if not advapi32.LookupPrivilegeValueW(g_lpSystemName, g_lpName, ctypes.byref(g_lpLuid)):
@@ -287,9 +273,10 @@ except OSError as e:
 # - cchName, pointer to DWORD
 #            tells Windows how large the buffer (lpName) is
 #
-# As size of buffer (lpName) is initially unknown, two calls will be made
+# As size of data (cchName) is initially unknown, two calls will be made
 # - first to retrieve actual buffer size
-# - second where both buffer and size of data specified
+# - second, where both buffer size and size of data specified
+# - similar to GetTokenInformation()
 #
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-lookupprivilegenamew
 
@@ -298,7 +285,7 @@ advapi32.LookupPrivilegeNameW.argtypes = [
     wintypes.LPCWSTR,               # lpSystemName
     ctypes.POINTER(LUID),           # lpLuid
     wintypes.LPWSTR,                # lpName
-    ctypes.POINTER(wintypes.DWORD)  # cchName
+    ctypes.POINTER(wintypes.DWORD)  # cchName (size)
 ]
 advapi32.LookupPrivilegeNameW.restype = wintypes.BOOL
 
@@ -315,6 +302,8 @@ advapi32.LookupPrivilegeNameW.restype = wintypes.BOOL
 # - struct type is not fixed, can be passed TOKEN_GROUPS, TOKEN_USER, TOKEN_OWNER etc
 # - therefore defined as ctypes.c_void_p, not ctypes.POINTER()
 #
+# 
+
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation
 
 # func() sigs
@@ -323,7 +312,7 @@ advapi32.GetTokenInformation.argtypes = [
     wintypes.INT,                   # TokenInformationClass
     ctypes.c_void_p,                # [o] TokenInformation (buffer)
     wintypes.DWORD,                 # TokenInformationLength
-    ctypes.POINTER(wintypes.DWORD)  # [o] ReturnLength
+    ctypes.POINTER(wintypes.DWORD)   # [o] ReturnLength
 ]
 advapi32.GetTokenInformation.restype = wintypes.BOOL
 
@@ -336,62 +325,115 @@ TokenInformationClass = 3       # TokenPrivileges
 ##### NOTE: this whole section will need a re-factor - for now it will do #####
 ###############################################################################
 
-# call GetTokenInformation() to find required buffer size
+# GetTokenInformation() - cast struct with proper buffer size for variable-length array
+# 
+# Step 1 - retrieve proper buffer size, with first GetTokenInformation() call
+# Step 2 - allocate proper-sized buffer variable
+# Step 3 - retrieve full buffer, requesting TokenPrivileges class
+# Step 4* - retrieve PrivilegeCount (length of array, which contain elements of LUID_AND_ATTRIBUTES)
+# Step 5 - re-build proper struct with correct array length
+# Step 6 - re-cast buf into new struct
+
+##### Note about Step 4
+# NOT casting buffer to a base/temporary struct, then to retrieve PrivilegeCount
+# - this method directly re-interprets/casts buffer, as if it points to a DWORD
+# 
+# memory layout of struct/buffer already known (later explicitly defined in struct)
+# [DWORD PrivilegeCount]
+# [LUID_AND_ATTRIBUTES #1]
+# [LUID_AND_ATTRIBUTES #2]
+# [LUID_AND_ATTRIBUTES #n]
+#
+# array_length = ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD)).contents.value
+# - this avoids casting to a struct twice, and pulls value directly from buffer
+# - from the first DWORD/4-bytes of the buffer, which is where PrivilegeCount sits
+
+# Step 1
 size = wintypes.DWORD() 
 advapi32.GetTokenInformation(g_TokenHandle, TokenInformationClass, None, 0, ctypes.byref(size))
 
-# allocate buffer size to receive privileges
+# Step 2
 buf = ctypes.create_string_buffer(size.value) 
 
-# re-call GetTokenInformation() to retrieve privileges
-advapi32.GetTokenInformation(g_TokenHandle, TokenInformationClass, buf, size, ctypes.byref(size)) 
+# Step 3
+if not advapi32.GetTokenInformation(g_TokenHandle, TokenInformationClass, buf, size.value, ctypes.byref(size)):
+    raise ctypes.WinError()
 
-token_privs_base = ctypes.cast(buf, ctypes.POINTER(TOKEN_PRIVILEGES_BASE)).contents
-array_length = token_privs_base.PrivilegeCount
+# Step 4
+array_length = ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD)).contents.value
 
-# re-defining struct with proper array length, then re-casting into proper sized struct
-class TOKEN_PRIVILEGES_FULL(ctypes.Structure):
+# safety-check: compares array_length (read-in) with array_length (calcuated)
+# - comparison is performed in order to prevent over-reads
+# - in case read-in memory (PrivilegeCount) is corrupted, returning invalid/larger size
+#
+# calculate size of memory for var-length array, after header/PrivilegeCount
+# - size.value - ctypes.sizeof(wintypes.DWORD)
+# --> size.value,   total size of buffer, allocated by GetTokenInformation()
+# --> ctypes.sizeof(wintypes.DWORD),    size of first field PrivilegeCount (4-bytes)
+#
+# divide (//) memory for var-lengh array, by size of ONE array element
+# returns how many array elements, can fit remaining buffer
+# - // ctypes.sizeof(LUID_AND_ATTRIBUTES)
+
+max_array_length = (size.value - ctypes.sizeof(wintypes.DWORD)) // ctypes.sizeof(LUID_AND_ATTRIBUTES)
+
+if array_length > max_array_length:
+    sys.exit(f"[!] Error: returned PrivilegeCount from GetTokenInformation() invalid")
+
+# Step 5
+class TOKEN_PRIVILEGES(ctypes.Structure):
     _fields_ = [
     ("PrivilegeCount",  wintypes.DWORD),
     ("Privileges",      LUID_AND_ATTRIBUTES * array_length)
     ]
 
-token_privs = ctypes.cast(buf, ctypes.POINTER(TOKEN_PRIVILEGES_FULL)).contents
+# Step 6
+token_privs = ctypes.cast(buf, ctypes.POINTER(TOKEN_PRIVILEGES)).contents
+
+
 print(f"\n[+] Number of Privileges in Access Token: {token_privs.PrivilegeCount}")
+print("--------------------------------------------")
 
-# for matching against user-input privilege
-lookup_match = False
 
-# iterate through TOKEN_PRIVILEGES_FULL structure
+lookup_match = 0
+
+
+# iterate through TOKEN_PRIVILEGES struct
 for i in range(token_privs.PrivilegeCount):
+
     priv = token_privs.Privileges[i]
-
     priv_status = 'ENABLED' if (priv.Attributes & SE_PRIVILEGE_ENABLED) else 'DISABLED'
-    
-    # initial LookupPrivilegeNameW() call -> retrieve proper buffer size
-    size = wintypes.DWORD()
-    advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), None, ctypes.byref(size))
-    
-    # allocate proper sized buffer
-    lpName_buf = ctypes.create_unicode_buffer(size.value)
-    cchName_buf = wintypes.DWORD(size.value)
-    
-    # call LookupPrivilegeNameW() again - to retrieve actual buffer
-    priv_name = advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), lpName_buf, ctypes.byref(cchName_buf))
-    
-    if priv_name:
-        print(f"{lpName_buf.value}\t\t -> {priv_status}\tLUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
-        
-        # case-insensitive match, for user-input privilege
-        if lpName_buf.value.lower() == g_lpName.lower():
-            lookup_match = True
-        
-    else:
+
+    # retrieve proper buffer size
+    size_name = wintypes.DWORD()
+    advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), None, ctypes.byref(size_name))
+
+    # allocate proper-sized buffer
+    lpName_buf = ctypes.create_unicode_buffer(size_name.value)
+    # print result
+ 
+    if not advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), lpName_buf, ctypes.byref(size_name)):
         print(f"[!] LookupPrivilegeNameW() Failed, LUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
+        continue
+
+    else:
+        print(f"[{i}] {lpName_buf.value} -> {priv_status}\tLUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
+
+        # increment on match, as for-loop will reset on each iteration if True/False
+        lookup_match += int(lpName_buf.value.lower() == g_lpName.lower())
 
 
-# check if user-entered privilege, exists in access token
 if lookup_match:
     print(f"\n[+] Privilege match found in Access Token: {g_lpName}")
 else:
-    print(f"\n[!] Privilige match NOT found: {g_lpName}")
+    print(f"\n[!] Privilege match NOT found: {g_lpName}")
+
+
+
+###################
+##### Cleanup #####
+###################
+
+print("\n[-] Closing opened handles:\n---------------------------")
+close_handle(proc_handle, "Process")
+close_handle(g_TokenHandle, "AccessToken")
