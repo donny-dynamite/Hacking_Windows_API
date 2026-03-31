@@ -3,6 +3,7 @@ Flip status of selected Privilege listed in access token
 - ENABLED -> DISABLED and vice versa
 
 Note: needs heavy re-factor
+- messay as hell
 - currently just POC to prove code works, cleanup afterwards
 
 Steps:
@@ -11,19 +12,16 @@ Steps:
 - OpenProcessToken() for returned process handle
 - GetTokenInformation(TokenPrivileges)
 - LookupPrivilegeNameW()
-....
 """
 
 #### REFACTOR IDEAS
-# TOKEN_PRIVILEGES struct
-# - def func() to specify length of LUID_AND_ATTRIBUTES array
 #
 # ARRAYS
 # - ensure last element in ANY array has comma (standardise)
 #
-# LUID_AND_ATTRIBUTES
-# - improve description, as Attributes is one of three int values
-# - enabled / removeed / disabled
+# Flipping
+# - remove confirmation
+# - once index selected, show before, and after confirmation
 #
 # Fix up the last half
 
@@ -31,7 +29,7 @@ Steps:
 import ctypes
 from ctypes import wintypes
 import subprocess
-import sysad
+import sys
 
 
 kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
@@ -85,40 +83,118 @@ if not valid_pid.stdout.strip():
 ##### CONSTANTS #####
 #####################
 
-PRIVILEGE_SET_ALL_NECESSARY = 0x01  # PRIVILEGE_SET()
-SE_PRIVILEGE_ENABLED	    = 0X02  # LUID_AND_ATTRIBUTES()
-SE_PRIVILEGE_DISABLED	    = 0X00  # LUID_AND_ATTRIBUTES()
+# Attributes field in LUID_AND_ATTRIBUTES struct
+# BitMask values that can be used in combination
+SE_PRIVILEGE_DISABLED	        = 0X00
+SE_PRIVILEGE_ENABLED_BY_DEFAULT = 0X01
+SE_PRIVILEGE_ENABLED	        = 0X02
+SE_PRIVILEGE_REMOVED            = 0x04
+SE_PRIVILEGE_USED_FOR_ACCESS    = 0x80000000
+
+# OpenProcess() - BitMask values
+PROCESS_QUERY_LIMITED_INFORMATION   = 0x1000
+PROCESS_ALL_ACCESS                  = 0x1F0FFF
+
+# OpenProcessToken() - BitMask values
+TOKEN_ALL_ACCESS = 0xF01FF
 
 
 
 
-######################################
-##### Manually Packed Structures #####
-######################################
+###################
+##### Structs #####
+###################
 #
-# Following used for looking-up/checking process privs
-# - LUID
-# -	LUID_AND_ATTRIBUTES
-#
-# LUID is a 64-bit value, used here to identify privileges
-# - two parts associated with lower/higher 32bits (LSB/MSB) of identifier
-# - concat to return complete LUID > 0 if valid
-#
-# ie:
+# LUID (Locally Unique ID)
+# - 64-bit value used to identify privileges
+# - two parts, lower/higher 32bits (LSB/MSB)
+# - LUID > 0 if valid, ie:
 # if (LowPart == 0) and (HighPart == 0):
 #     sys.exit(f"[!] Error, LUID not found")
+#
+# LUID_AND_ATTRIBUTES
+# - specifies properties of a privilege - DISABLED, ENABLED, REMOVED etc
+# - BitMask values defined in CONSTANTS
 
 class LUID(ctypes.Structure):
 	_fields_ = [
-	("LowPart",		wintypes.DWORD),
-	("HighPart", 	wintypes.LONG)
+        ("LowPart",		wintypes.DWORD),
+        ("HighPart", 	wintypes.LONG),
 	]
 
 class LUID_AND_ATTRIBUTES(ctypes.Structure):
 	_fields_ = [
-	("Luid", 		LUID),
-	("Attributes", 	wintypes.DWORD)
+        ("Luid", 		LUID),
+        ("Attributes", 	wintypes.DWORD),
 	]
+
+# dynamic struct creation, to handle variable-length access tokens
+def createStruct_tokenPrivileges(length):
+    class TOKEN_PRIVILEGES(ctypes.Structure):
+        _fields_ = [
+            ("PrivilegeCount",  wintypes.DWORD),
+            ("Privileges",      LUID_AND_ATTRIBUTES * length),
+        ]
+    return TOKEN_PRIVILEGES
+    
+
+
+
+###############################
+##### Function Signatures #####
+###############################
+#
+# to ensure functions passed (and return) correct data types
+
+## kernel32
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE,]  # hObject
+kernel32.CloseHandle.restype = wintypes.BOOL
+
+kernel32.OpenProcess.argtypes = [
+    wintypes.DWORD, # dwDesiredAccess
+    wintypes.BOOL,  # bInheritHandle
+    wintypes.DWORD, # dwProcessId
+]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+
+
+## advapi32
+advapi32.OpenProcessToken.argtypes = [
+    wintypes.HANDLE,                    # ProcessHandle
+    wintypes.DWORD,                     # DesiredAccess
+    ctypes.POINTER(wintypes.HANDLE),    # [o] TokenHandle
+]
+advapi32.OpenProcessToken.restype = wintypes.BOOL
+
+advapi32.LookupPrivilegeNameW.argtypes = [
+    wintypes.LPCWSTR,               # lpSystemName
+    ctypes.POINTER(LUID),           # lpLuid
+    wintypes.LPWSTR,                # [o] lpName (opt)
+    ctypes.POINTER(wintypes.DWORD), # cchName (size)
+]
+advapi32.LookupPrivilegeNameW.restype = wintypes.BOOL
+
+advapi32.GetTokenInformation.argtypes = [
+    wintypes.HANDLE,                # TokenHandle
+    wintypes.INT,                   # TokenInformationClass
+    ctypes.c_void_p,                # [o] TokenInformation (buffer) (opt)
+    wintypes.DWORD,                 # TokenInformationLength
+    ctypes.POINTER(wintypes.DWORD), # [o] ReturnLength
+]
+advapi32.GetTokenInformation.restype = wintypes.BOOL
+
+# NOTE: NewState/PreviousState -> ctypes.c_void_p as workaround
+# - originally -> ctypes.POINTER(TOKEN_PRIVILEGES)
+# - however NameError thrown as struct not defined yet
+advapi32.AdjustTokenPrivileges.argtypes = [
+    wintypes.HANDLE,                    # TokenHandle
+    wintypes.BOOL,                      # DisableAllPrivileges
+    ctypes.c_void_p,                    # NewState (opt)
+    wintypes.DWORD,                     # BufferLength
+    ctypes.c_void_p,                    # [o] PreviousState (opt)
+    ctypes.POINTER(wintypes.DWORD),     # [o] ReturnLength (opt)
+]
+advapi32.AdjustTokenPrivileges.restype = wintypes.BOOL
 
 
 
@@ -127,18 +203,7 @@ class LUID_AND_ATTRIBUTES(ctypes.Structure):
 ##### CloseHandle() - kernel32.dll #####
 ########################################
 #
-# For clean-up of open handles at the end of execution
-# - actual HANDLE objects passed in from OpenProcess()
-# - 'return wintypes.HANDLE(ret)' 
-#
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-closehandle#return-value
-
-# func() sigs
-kernel32.CloseHandle.argtypes = [wintypes.HANDLE,]  # hObject
-kernel32.CloseHandle.restype = wintypes.BOOL
-
-
-# wrapper for CloseHandle()
+# final cleanup
 def close_handle(handle, name="Handle"):
     if handle:
         if kernel32.CloseHandle(handle):
@@ -152,34 +217,13 @@ def close_handle(handle, name="Handle"):
 ########################################
 ##### OpenProcess() - kernel32.dll #####
 ########################################
-# 
-# Return HANDLE to open process
-# - force return type of HANDLE (c_void_p), otherwise ctypes converts to int
 #
-# This is done for easing Handle cleanup - CloseHandle()
-# - ensures consistency when calling CloseHandle() multiple times
-# - otherwise proc_handle passed as type 'int', and g_TokenHandle passed as HANDLE object
-# - prevents needing to check type()/hasattr()/getattr() when calling CloseHandle()
-#
-# Ref: https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+# return open HANDLE to specified process
 
-# func() sigs
-kernel32.OpenProcess.argtypes = [
-    wintypes.DWORD, # dwDesiredAccess
-    wintypes.BOOL,  # bInheritHandle
-    wintypes.DWORD, # dwProcessId
-]
-kernel32.OpenProcess.restype = wintypes.HANDLE
+dwDesiredAccess = PROCESS_ALL_ACCESS
+bInheritHandle = False
+dwProcessId = pid_value
 
-# def params
-# PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-PROCESS_ALL_ACCESS = 0x1F0FFF # BitMask value
-g_dwDesiredAccess = PROCESS_ALL_ACCESS
-g_bInheritHandle = False
-g_dwProcessId = pid_value
-
-
-# func() wrapper for OpenProcess()
 def open_proc(dwDesiredAccess, bInheritHandle, dwProcessId):
     ret = kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId)
     if not ret:
@@ -188,12 +232,11 @@ def open_proc(dwDesiredAccess, bInheritHandle, dwProcessId):
 
 
 try:
-    proc_handle = open_proc(g_dwDesiredAccess, g_bInheritHandle, g_dwProcessId)
-    print(f"\n[+] OpenProcess() Successful, Process Handle: {proc_handle.value}")
+    ProcessHandle = open_proc(dwDesiredAccess, bInheritHandle, dwProcessId)
+    print(f"\n[+] OpenProcess() Successful, Process Handle: {ProcessHandle.value}")
 
 except OSError as e:
     sys.exit(f"\n[!] OpenProcess() Failed. Error: {e}")
-
 
 
 
@@ -201,32 +244,16 @@ except OSError as e:
 ##### OpenProcessToken() - advapi32.dll #####
 #############################################
 # 
-# return Handle to Access Token ... or rather:
-# - update Pointer var (TokenHandle) to contain a HANDLE, which refers to Access Token for given process
-#
-# Not defining the following:
-# - g_ProcessHandle var, as proc_handle exists
-# - OpenProcessToken() wrapper, as not returning any value, only updating g_TokenHandle in-place
-#
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken#return-value
+# update TokenHandle to contain HANDLE to Access Token for given process
+# - no return value, updating pointer in-place
 
-# func() sigs
-advapi32.OpenProcessToken.argtypes = [
-    wintypes.HANDLE,                    # ProcessHandle
-    wintypes.DWORD,                     # DesiredAccess
-    ctypes.POINTER(wintypes.HANDLE),    # [o] TokenHandle
-    ]
-advapi32.OpenProcessToken.restype = wintypes.BOOL
-
-# def params
-g_DesiredAccess = 0xF01FF # BitMask for TOKEN_ALL_ACCESS
-g_TokenHandle = wintypes.HANDLE()
-
+DesiredAccess = TOKEN_ALL_ACCESS
+TokenHandle = wintypes.HANDLE()
 
 try:
-    if not advapi32.OpenProcessToken(proc_handle, g_DesiredAccess, ctypes.byref(g_TokenHandle)):
+    if not advapi32.OpenProcessToken(ProcessHandle, DesiredAccess, ctypes.byref(TokenHandle)):
         raise ctypes.WinError()
-    print(f"[+] OpenProcessToken() Successful, AccessToken Handle: {g_TokenHandle.value}")
+    print(f"[+] OpenProcessToken() Successful, AccessToken Handle: {TokenHandle.value}")
 
 except OSError as e:
     sys.exit(f"[!] OpenProcessToken() Failed, Error: {e}")
@@ -234,77 +261,6 @@ except OSError as e:
 
 
 
-##################################################
-##### LookupPrivilegeValueW() - advapi32.dll #####
-##################################################
-#
-# Retrieve LUID (Locally Unique ID) for a specific privilege name
-# - privileges are identified internally by LUIDs (not string names)
-# - func() converts human-readable priv into LUID
-# - eg from: SeDebugPrivilege -> to: LUID 
-#
-# Then included in struct, which is passed to PrivilegeCheck()
-#
-# NOTE: This func() does NOT check if priv exists in access token
-# - only returns if there is a system LUID for a given privilege
-#
-# https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-lookupprivilegevaluew#return-value
-
-# func() sigs
-advapi32.LookupPrivilegeValueW.argtypes = [
-	wintypes.LPCWSTR,   			# lpSystemName (can be None)
-	wintypes.LPCWSTR,				# lpName (eg "SeDebugPrivilege")
-	ctypes.POINTER(LUID),	        # [o] lpLuid
-]
-advapi32.LookupPrivilegeValueW.restype = wintypes.BOOL
-
-# def params
-g_lpSystemName = None
-g_lpName = input("\nEnter privilege name (eg, SeDebugPrivilege): ") # case-insensitive
-g_lpLuid = LUID()                       # instantiate LUID struct
-
-try:
-    if not advapi32.LookupPrivilegeValueW(g_lpSystemName, g_lpName, ctypes.byref(g_lpLuid)):
-        raise ctypes.WinError()
-
-    print(f"\n[+] LookupPrivilegeValueW() Sucscessful")
-    print(f"Privilege exists on system: {g_lpName}", end=" ")
-    print(f"-> LUID High: {g_lpLuid.HighPart}, LUID Low: {g_lpLuid.LowPart}")
-
-except OSError as e:
-    sys.exit(f"[!] LookupPrivilegeValueW() Failed, Error: {e}")
-
-
-
-
-#################################################
-##### LookupPrivilegeNameW() - advapi32.dll #####
-#################################################
-#
-# Return human-readable name for given LUID
-# - pre-defining, will be called in GetTokenInformation()
-#
-# Two params for name length
-# - lpName, pointer to output buffer to receive priv name
-#           memory where function writes the string
-# - cchName, pointer to DWORD
-#            tells Windows how large the buffer (lpName) is
-#
-# As size of data (cchName) is initially unknown, two calls will be made
-# - first to retrieve actual buffer size
-# - second, where both buffer size and size of data specified
-# - similar to GetTokenInformation()
-#
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-lookupprivilegenamew
-
-# func() sigs
-advapi32.LookupPrivilegeNameW.argtypes = [
-    wintypes.LPCWSTR,               # lpSystemName
-    ctypes.POINTER(LUID),           # lpLuid
-    wintypes.LPWSTR,                # [o] lpName (opt)
-    ctypes.POINTER(wintypes.DWORD), # cchName (size)
-]
-advapi32.LookupPrivilegeNameW.restype = wintypes.BOOL
 
 
 
@@ -318,20 +274,6 @@ advapi32.LookupPrivilegeNameW.restype = wintypes.BOOL
 # - from doco, "The structure put into this buffer, depends upon the TokenInformationClass"
 # - struct type is not fixed, can be passed TOKEN_GROUPS, TOKEN_USER, TOKEN_OWNER etc
 # - therefore defined as ctypes.c_void_p, not ctypes.POINTER()
-#
-# 
-
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation
-
-# func() sigs
-advapi32.GetTokenInformation.argtypes = [
-    wintypes.HANDLE,                # TokenHandle
-    wintypes.INT,                   # TokenInformationClass
-    ctypes.c_void_p,                # [o] TokenInformation (buffer) (opt)
-    wintypes.DWORD,                 # TokenInformationLength
-    ctypes.POINTER(wintypes.DWORD), # [o] ReturnLength
-]
-advapi32.GetTokenInformation.restype = wintypes.BOOL
 
 # Specify information to retrieve from access token
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class
@@ -339,7 +281,7 @@ TokenInformationClass = 3       # TokenPrivileges
 
 
 ###############################################################################
-##### NOTE: this whole section will need a re-factor - for now it will do #####
+##### NOTE: REFACTOR whole section into a function for re-use #####
 ###############################################################################
 
 # GetTokenInformation() - cast struct with proper buffer size for variable-length array
@@ -347,7 +289,7 @@ TokenInformationClass = 3       # TokenPrivileges
 # Step 1 - retrieve proper buffer size, with first GetTokenInformation() call
 # Step 2 - allocate proper-sized buffer variable
 # Step 3 - retrieve full buffer, requesting TokenPrivileges class
-# Step 4* - retrieve PrivilegeCount (length of array, which contain elements of LUID_AND_ATTRIBUTES)
+# Step 4* - ret PrivilegeCount (array length)
 # Step 5 - re-build proper struct with correct array length
 # Step 6 - re-cast buffer-memory into new struct
 
@@ -367,13 +309,13 @@ TokenInformationClass = 3       # TokenPrivileges
 
 # Step 1
 size = wintypes.DWORD() 
-advapi32.GetTokenInformation(g_TokenHandle, TokenInformationClass, None, 0, ctypes.byref(size))
+advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, None, 0, ctypes.byref(size))
 
 # Step 2
 buf = ctypes.create_string_buffer(size.value) 
 
 # Step 3
-if not advapi32.GetTokenInformation(g_TokenHandle, TokenInformationClass, buf, size.value, ctypes.byref(size)):
+if not advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, buf, size.value, ctypes.byref(size)):
     raise ctypes.WinError()
 
 # Step 4
@@ -398,11 +340,7 @@ if array_length > max_array_length:
     sys.exit(f"[!] Error: returned PrivilegeCount from GetTokenInformation() invalid")
 
 # Step 5
-class TOKEN_PRIVILEGES(ctypes.Structure):
-    _fields_ = [
-    ("PrivilegeCount",  wintypes.DWORD),
-    ("Privileges",      LUID_AND_ATTRIBUTES * array_length)
-    ]
+TOKEN_PRIVILEGES = createStruct_tokenPrivileges(array_length)
 
 # Step 6
 token_privs = ctypes.cast(buf, ctypes.POINTER(TOKEN_PRIVILEGES)).contents
@@ -412,7 +350,6 @@ print(f"\n[+] Number of Privileges in Access Token: {token_privs.PrivilegeCount}
 print("--------------------------------------------")
 
 
-lookup_match = 0
 
 
 # iterate through TOKEN_PRIVILEGES struct
@@ -437,31 +374,12 @@ for i in range(token_privs.PrivilegeCount):
         print(f"[{i}] {lpName_buf.value} -> {priv_status}\tLUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
 
         # increment on match, as for-loop will reset on each iteration if True/False
-        lookup_match += int(lpName_buf.value.lower() == g_lpName.lower())
-
-
-if lookup_match:
-    print(f"\n[+] Privilege match found in Access Token: {g_lpName}")
-else:
-    print(f"\n[!] Privilege match NOT found: {g_lpName}")
 
 
 
 
 
 
-
-
-
-###################
-##### Flip status
-###################
-#
-# Steps:
-# - print privilege based on index
-# - ask for confirmation to flip
-# - 
-# 
 
 # func() to request which priv to flip
 def ask_privilege():
@@ -521,54 +439,24 @@ confirm = ask_confirmation()
 
 if confirm == 'y':
     selected_priv = token_privs.Privileges[i]
+else:
+    sys.exit("[!] NOT FLIPPING")
 
 
 
-# single-entry TOKEN_PRIVILEGES struct
-# ref-factor this later
-class TOKEN_PRIVILEGES_SINGLE(ctypes.Structure):
-    _fields_ = [
-    ("PrivilegeCount",  wintypes.DWORD),
-    ("Privileges",      LUID_AND_ATTRIBUTES * 1),
-    ]
-
-
-##################################################
 ##### AdjustTokenPrivileges() - advapi32.dll #####
 ##################################################
 #
-# - currently only flipping a single privilege
-#
+# Fip single chosen privilege
 #
 # Ref: https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-adjusttokenprivileges
 
-# func() sigs
-advapi32.AdjustTokenPrivileges.argtypes = [
-    wintypes.HANDLE,                    # TokenHandle
-    wintypes.BOOL,                      # DisableAllPrivileges
-    ctypes.POINTER(TOKEN_PRIVILEGES_SINGLE),   # NewState (opt)
-    wintypes.DWORD,                     # BufferLength
-    ctypes.POINTER(TOKEN_PRIVILEGES),   # PreviousState (opt)
-    ctypes.POINTER(wintypes.DWORD),     # ReturnLength (opt)
-]
-advapi32.AdjustTokenPrivileges.restype = wintypes.BOOL
+# flip attribute - bitwise &
+new_attr = SE_PRIVILEGE_DISABLED if (selected_priv.Attributes & SE_PRIVILEGE_ENABLED) else SE_PRIVILEGE_ENABLED
 
-# def params
-DisableAllPrivileges = False
-
-
-# Prepping new for TOKEN_PRIVILEGES instance
-#
-# flip state - bitwise operation
-if selected_priv.Attributes & SE_PRIVILEGE_ENABLED:
-    new_attr = SE_PRIVILEGE_DISABLED
-else:
-    new_attr = SE_PRIVILEGE_ENABLED
-
-
-
-    
-tp = TOKEN_PRIVILEGES_SINGLE()
+# create struct, and immediately instantiate class object -> (1)()
+# - to handle TypeError being thrown when creating array of 1 element
+tp = createStruct_tokenPrivileges(1)()
 tp.PrivilegeCount = 1
 tp.Privileges[0].Luid = selected_priv.Luid   # as Privileges is an array
 tp.Privileges[0].Attributes = new_attr
@@ -576,8 +464,8 @@ tp.Privileges[0].Attributes = new_attr
 
 # call AdjustTokenPrivileges()
 if not advapi32.AdjustTokenPrivileges(
-    g_TokenHandle, 
-    DisableAllPrivileges,
+    TokenHandle, 
+    False,
     ctypes.byref(tp),
     0,
     None,
@@ -613,13 +501,13 @@ else:
 
 # Step 1
 size = wintypes.DWORD() 
-advapi32.GetTokenInformation(g_TokenHandle, TokenInformationClass, None, 0, ctypes.byref(size))
+advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, None, 0, ctypes.byref(size))
 
 # Step 2
 buf = ctypes.create_string_buffer(size.value) 
 
 # Step 3
-if not advapi32.GetTokenInformation(g_TokenHandle, TokenInformationClass, buf, size.value, ctypes.byref(size)):
+if not advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, buf, size.value, ctypes.byref(size)):
     raise ctypes.WinError()
 
 # Step 4
@@ -644,14 +532,10 @@ if array_length > max_array_length:
     sys.exit(f"[!] Error: returned PrivilegeCount from GetTokenInformation() invalid")
 
 # Step 5
-class TOKEN_PRIVILEGES(ctypes.Structure):
-    _fields_ = [
-    ("PrivilegeCount",  wintypes.DWORD),
-    ("Privileges",      LUID_AND_ATTRIBUTES * array_length)
-    ]
+tp_new = createStruct_tokenPrivileges(array_length)
 
 # Step 6
-token_privs = ctypes.cast(buf, ctypes.POINTER(TOKEN_PRIVILEGES)).contents
+token_privs = ctypes.cast(buf, ctypes.POINTER(tp_new)).contents
 
 
 print(f"\n[+] Number of Privileges in Access Token: {token_privs.PrivilegeCount}")
@@ -688,6 +572,6 @@ for i in range(token_privs.PrivilegeCount):
 ###################
 '''
 print("\n[-] Closing opened handles:\n---------------------------")
-close_handle(proc_handle, "Process")
-close_handle(g_TokenHandle, "AccessToken")
+close_handle(ProcessHandle, "Process")
+close_handle(TokenHandle, "AccessToken")
 '''
