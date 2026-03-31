@@ -1,29 +1,7 @@
 """
 Flip status of selected Privilege listed in access token
 - ENABLED -> DISABLED and vice versa
-
-Note: needs heavy re-factor
-- messay as hell
-- currently just POC to prove code works, cleanup afterwards
-
-Steps:
-- PowerShell script to list PIDs, group-by ProcessName
-- OpenProcess() for given PID
-- OpenProcessToken() for returned process handle
-- GetTokenInformation(TokenPrivileges)
-- LookupPrivilegeNameW()
 """
-
-#### REFACTOR IDEAS
-#
-# ARRAYS
-# - ensure last element in ANY array has comma (standardise)
-#
-# Flipping
-# - remove confirmation
-# - once index selected, show before, and after confirmation
-#
-# Fix up the last half
 
 
 import ctypes
@@ -98,11 +76,13 @@ PROCESS_ALL_ACCESS                  = 0x1F0FFF
 # OpenProcessToken() - BitMask values
 TOKEN_ALL_ACCESS = 0xF01FF
 
+# GetTokenInformation()
+TokenInformationClass = 3       # TokenPrivileges
 
 
 
 ###################
-##### Structs #####
+##### STRUCTS #####
 ###################
 #
 # LUID (Locally Unique ID)
@@ -129,7 +109,7 @@ class LUID_AND_ATTRIBUTES(ctypes.Structure):
 	]
 
 # dynamic struct creation, to handle variable-length access tokens
-def createStruct_tokenPrivileges(length):
+def tokenPrivileges_createStruct(length):
     class TOKEN_PRIVILEGES(ctypes.Structure):
         _fields_ = [
             ("PrivilegeCount",  wintypes.DWORD),
@@ -177,7 +157,7 @@ advapi32.LookupPrivilegeNameW.restype = wintypes.BOOL
 advapi32.GetTokenInformation.argtypes = [
     wintypes.HANDLE,                # TokenHandle
     wintypes.INT,                   # TokenInformationClass
-    ctypes.c_void_p,                # [o] TokenInformation (buffer) (opt)
+    wintypes.LPVOID,                  # [o] TokenInformation (buffer) (opt)
     wintypes.DWORD,                 # TokenInformationLength
     ctypes.POINTER(wintypes.DWORD), # [o] ReturnLength
 ]
@@ -189,7 +169,7 @@ advapi32.GetTokenInformation.restype = wintypes.BOOL
 advapi32.AdjustTokenPrivileges.argtypes = [
     wintypes.HANDLE,                    # TokenHandle
     wintypes.BOOL,                      # DisableAllPrivileges
-    ctypes.c_void_p,                    # NewState (opt)
+    ctypes.c_void_p,                    # NewState (new TOKEN_PRIVILEGES struct) (opt)
     wintypes.DWORD,                     # BufferLength
     ctypes.c_void_p,                    # [o] PreviousState (opt)
     ctypes.POINTER(wintypes.DWORD),     # [o] ReturnLength (opt)
@@ -227,7 +207,7 @@ dwProcessId = pid_value
 def open_proc(dwDesiredAccess, bInheritHandle, dwProcessId):
     ret = kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId)
     if not ret:
-        raise ctypes.WinError()    
+        raise ctypes.WinError(ctypes.get_last_error())    
     return wintypes.HANDLE(ret)
 
 
@@ -252,7 +232,7 @@ TokenHandle = wintypes.HANDLE()
 
 try:
     if not advapi32.OpenProcessToken(ProcessHandle, DesiredAccess, ctypes.byref(TokenHandle)):
-        raise ctypes.WinError()
+        raise ctypes.WinError(ctypes.get_last_error())
     print(f"[+] OpenProcessToken() Successful, AccessToken Handle: {TokenHandle.value}")
 
 except OSError as e:
@@ -261,134 +241,140 @@ except OSError as e:
 
 
 
-
-
-
-
-#################################################
-##### GetTokenInformation () - advapi32.dll #####
-#################################################
+################################################
+##### GetTokenInformation() - advapi32.dll #####
+################################################
 #
-# Third argument passed to func():
-# - [out, opt] LPVOID TokenInformation
-# - from doco, "The structure put into this buffer, depends upon the TokenInformationClass"
-# - struct type is not fixed, can be passed TOKEN_GROUPS, TOKEN_USER, TOKEN_OWNER etc
-# - therefore defined as ctypes.c_void_p, not ctypes.POINTER()
+# two-call method to return TokenPrivileges information for Access Token
+#
+# first step:
+# - first call: TokenInformation = NULL, TokenInformationLength = 0
+# - call fails with ERROR_INSUFFICIENT_BUFFER -> ReturnLength returned
+# - allocate buf of required size (ReturnLength -> TokenInformationLength)
+#
+# second step:
+# - re-call with pointer to buffer, and 
 
-# Specify information to retrieve from access token
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class
-TokenInformationClass = 3       # TokenPrivileges
+def get_token_info_buffer(TokenHandle, TokenInformationClass):
+    
+    size = wintypes.DWORD(0) 
+
+    # first step: retrieve ReturnLength
+    advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, None, 0, ctypes.byref(size))
+
+    buf = ctypes.create_string_buffer(size.value) 
+
+    # second step: re-call, with buffer and correct sizes
+    if not advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, buf, size.value, ctypes.byref(size)):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    return buf, size.value
 
 
-###############################################################################
-##### NOTE: REFACTOR whole section into a function for re-use #####
-###############################################################################
 
-# GetTokenInformation() - cast struct with proper buffer size for variable-length array
-# 
-# Step 1 - retrieve proper buffer size, with first GetTokenInformation() call
-# Step 2 - allocate proper-sized buffer variable
-# Step 3 - retrieve full buffer, requesting TokenPrivileges class
-# Step 4* - ret PrivilegeCount (array length)
-# Step 5 - re-build proper struct with correct array length
-# Step 6 - re-cast buffer-memory into new struct
 
-##### Note about Step 4
-# Here we do NOT cast buffer to a base/temporary struct
-# - this method directly re-interprets/casts buffer, as if it points to a DWORD
-# 
-# memory layout of struct/buffer already known (as defined in struct layout)
+##### Cast TOKEN_PRIVILEGES struct
+#
+# directly cast buf to DWORD to retrieve length of array (PrivilegeCount)
+# - avoids casting to struct twice, as info sites in first DWORD/4-bytes
+ 
+# - buf memory layout already known (by struct definition)
 # [DWORD PrivilegeCount]
 # [LUID_AND_ATTRIBUTES #1]
 # [LUID_AND_ATTRIBUTES #2]
 # [LUID_AND_ATTRIBUTES #n]
 #
-# array_length = ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD)).contents.value
-# - this avoids casting to a struct twice, and pulls value directly from buffer
-# - from the first DWORD/4-bytes of the buffer, which is where PrivilegeCount sits
-
-# Step 1
-size = wintypes.DWORD() 
-advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, None, 0, ctypes.byref(size))
-
-# Step 2
-buf = ctypes.create_string_buffer(size.value) 
-
-# Step 3
-if not advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, buf, size.value, ctypes.byref(size)):
-    raise ctypes.WinError()
-
-# Step 4
-array_length = ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD)).contents.value
-
-# safety-check: compares array_length (read-in) with array_length (calcuated)
-# - comparison is performed in order to prevent over-reads
-# - in case read-in memory (PrivilegeCount) is corrupted, returning invalid/larger size
+# Safety check implemented - prevent memory over read
+# - ensure memory-read (ReturnLength) !> actual memory left in buffer
 #
-# calculate size of memory for var-length array, after header/PrivilegeCount
-# - size.value - ctypes.sizeof(wintypes.DWORD)
-# --> size.value,   total size of buffer, allocated by GetTokenInformation()
-# --> ctypes.sizeof(wintypes.DWORD),    size of first field PrivilegeCount (4-bytes)
-#
-# divide (//) memory for var-lengh array, by size of ONE array element
-# returns how many array elements, can fit remaining buffer
-# - // ctypes.sizeof(LUID_AND_ATTRIBUTES)
+# - size_payload == size of buffer after header/DWORD
+# - integer division (//) for var-lengh array, by size of ONE array element
+# - returns how many array elements, can fit remaining buffer
 
-max_array_length = (size.value - ctypes.sizeof(wintypes.DWORD)) // ctypes.sizeof(LUID_AND_ATTRIBUTES)
+def cast_token_privileges(buf, size):
 
-if array_length > max_array_length:
-    sys.exit(f"[!] Error: returned PrivilegeCount from GetTokenInformation() invalid")
+    array_length = ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD)).contents.value
 
-# Step 5
-TOKEN_PRIVILEGES = createStruct_tokenPrivileges(array_length)
+    # calculate max len(array) from remaining buffer space
+    size_payload = (size - ctypes.sizeof(wintypes.DWORD))
+    size_single_element = ctypes.sizeof(LUID_AND_ATTRIBUTES)
+    max_array_length = size_payload // size_single_element
 
-# Step 6
-token_privs = ctypes.cast(buf, ctypes.POINTER(TOKEN_PRIVILEGES)).contents
+    # safety check
+    if array_length > max_array_length:
+        sys.exit(f"[!] Error: returned PrivilegeCount from GetTokenInformation() invalid")
 
+    TOKEN_PRIVILEGES = tokenPrivileges_createStruct(array_length)
 
-print(f"\n[+] Number of Privileges in Access Token: {token_privs.PrivilegeCount}")
-print("--------------------------------------------")
+    return ctypes.cast(buf, ctypes.POINTER(TOKEN_PRIVILEGES)).contents
 
 
 
 
-# iterate through TOKEN_PRIVILEGES struct
-for i in range(token_privs.PrivilegeCount):
+#############################################
+##### Print TokenInformation Privileges #####
+#############################################
+# NOTE: may not need to return list here
+# - tokenPrivileges_requestFlip -> returns TOKEN_PRIVILEGES object
+# - returns single object that can be referenced directly
 
-    priv = token_privs.Privileges[i]
-    priv_status = 'ENABLED' if (priv.Attributes & SE_PRIVILEGE_ENABLED) else 'DISABLED'
+def tokenPrivileges_printInfo(token_privs, index=None, Flipped=False):
 
-    # retrieve proper buffer size
-    size_name = wintypes.DWORD()
-    advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), None, ctypes.byref(size_name))
-
-    # allocate proper-sized buffer
-    lpName_buf = ctypes.create_unicode_buffer(size_name.value)
-
-    # print result
-    if not advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), lpName_buf, ctypes.byref(size_name)):
-        print(f"[!] LookupPrivilegeNameW() Failed, LUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
-        continue
-
+    # which message to print
+    if Flipped == False:
+        if index == None:
+            print(f"\n[+] Privileges in Access Token: {token_privs.PrivilegeCount}")
+            print("--------------------------------")
+        else:
+            print("\n[+] Selected Privilege in Access Token:")
+            print("-----------------------------------------")
+    
     else:
-        print(f"[{i}] {lpName_buf.value} -> {priv_status}\tLUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
-
-        # increment on match, as for-loop will reset on each iteration if True/False
+        print("-------------------------------------------------")
 
 
+    # which indices to iterate
+    indices = range(token_privs.PrivilegeCount) if index is None else [index]
+
+
+    # iterate through TOKEN_PRIVILEGES struct
+    for i in indices:
+
+        priv = token_privs.Privileges[i]
+        priv_status = 'ENABLED' if (priv.Attributes & SE_PRIVILEGE_ENABLED) else 'DISABLED'
+
+        # retrieve/allocate proper buffer size
+        size = wintypes.DWORD(0)
+        advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), None, ctypes.byref(size))
+        lpName = ctypes.create_unicode_buffer(size.value)
+
+        # print result
+        if advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), lpName, ctypes.byref(size)):
+            print(f"[{i}] {lpName.value} -> {priv_status}\tLUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
+
+        else:
+            print(f"[!] LookupPrivilegeNameW() Failed, LUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
+            continue
 
 
 
 
+#####################################
+##### Request Privilege to flip #####
+#####################################
+#
+# Only one choice of Privilege given to flip, eg ENABLED -> DISABLED
 
-# func() to request which priv to flip
-def ask_privilege():
+def tokenPrivileges_requestFlip(token_privs):
+    
     while True:
         try:
-            i = int(input(f"\nEnter index of Privilege to flip [0-{token_privs.PrivilegeCount -1}]: "))
+            i = int(input(f"\nEnter index of Privilege to flip status [0-{token_privs.PrivilegeCount -1}]: "))
 
             if (0 <= i < token_privs.PrivilegeCount):
-                return i
+                # return info from single element in array
+                # this is the LUID_AND_ATTRIBUTES nested struct, with Luid and Attributes fields
+                return i, token_privs.Privileges[i]
             else:
                 print(f"[!] Please enter a valid index value")
                 
@@ -397,181 +383,109 @@ def ask_privilege():
 
 
 
-# Re-call privilege information from given index
-def print_priv_to_flip(i):
-    old_priv = token_privs.Privileges[i]
-    old_priv_status = 'ENABLED' if (old_priv.Attributes & SE_PRIVILEGE_ENABLED) else 'DISABLED'
 
-    # retrieve proper buffer size
-    size_name = wintypes.DWORD()
-    advapi32.LookupPrivilegeNameW(None, ctypes.byref(old_priv.Luid), None, ctypes.byref(size_name))
-
-    # allocate proper-sized buffer
-    lpName_buf = ctypes.create_unicode_buffer(size_name.value)
-
-        # print result
-    if not advapi32.LookupPrivilegeNameW(None, ctypes.byref(old_priv.Luid), lpName_buf, ctypes.byref(size_name)):
-        print(f"[!] LookupPrivilegeNameW() Failed, LUID: ({old_priv.Luid.HighPart}, {old_priv.Luid.LowPart})")
-
-    else:
-        print(f"[{i}] {lpName_buf.value} -> {old_priv_status}\tLUID: ({old_priv.Luid.HighPart}, {old_priv.Luid.LowPart})")
-
-        # returning human readable name
-        # pevents having to re-iterate through buffer
-        return lpName_buf.value
-
-
-# ask for confirmation
-def ask_confirmation():
-    while True:
-        response = input("\nConfirm privilege to flip ['y' or 'n']: ")
-        ret = response.strip().lower()
-        if ret in ('y', 'n'):
-            return ret
-        else:
-            print("Please confirm privilege selection")
-
-
-
-i = ask_privilege()
-priv_name = print_priv_to_flip(i)   # save human-readable name
-confirm = ask_confirmation()
-
-if confirm == 'y':
-    selected_priv = token_privs.Privileges[i]
-else:
-    sys.exit("[!] NOT FLIPPING")
-
-
-
+##################################################
 ##### AdjustTokenPrivileges() - advapi32.dll #####
 ##################################################
 #
-# Fip single chosen privilege
-#
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-adjusttokenprivileges
+# Fip status of chosen privilege, between ENABLED -> DISABLED -> ENABLED
 
-# flip attribute - bitwise &
-new_attr = SE_PRIVILEGE_DISABLED if (selected_priv.Attributes & SE_PRIVILEGE_ENABLED) else SE_PRIVILEGE_ENABLED
+def tokenPrivileges_flipAttribute(TokenHandle, selected_priv):
+    
+    # flip attribute - bitwise &
+    new_attr = SE_PRIVILEGE_DISABLED if (selected_priv.Attributes & SE_PRIVILEGE_ENABLED) else SE_PRIVILEGE_ENABLED
 
-# create struct, and immediately instantiate class object -> (1)()
-# - to handle TypeError being thrown when creating array of 1 element
-tp = createStruct_tokenPrivileges(1)()
-tp.PrivilegeCount = 1
-tp.Privileges[0].Luid = selected_priv.Luid   # as Privileges is an array
-tp.Privileges[0].Attributes = new_attr
-
-
-# call AdjustTokenPrivileges()
-if not advapi32.AdjustTokenPrivileges(
-    TokenHandle, 
-    False,
-    ctypes.byref(tp),
-    0,
-    None,
-    None
-):
-    raise ctypes.WinError(ctypes.get_last_error())
+    # immediately instantiate new struct/class object, with array[1] -> (1)()
+    # - to handle TypeError being thrown when creating array of 1 element
+    tp = tokenPrivileges_createStruct(1)()
+    tp.PrivilegeCount = 1
+    tp.Privileges[0].Luid = selected_priv.Luid   # as Privileges is an array
+    tp.Privileges[0].Attributes = new_attr
 
 
-# verify - calling get_last_error()
-# - not refering to return value of AdjustTokenPrivileges()
-# - func() will return TRUE for following edge cases:
-# ---- partially successful (eg, multiple privs in TOKEN_PRIVILEGES)
-# ---- privilege not listed/assigned in Access Token
-#
-# above can occur for reasons such as elevation attempt on non-admin process
-#
-# TRUE return is for successful execution of function()
-# - not about whether assignment occurred successfully
-# - need to check ctypes.get_last_error() to verify successful assignment
+    if not advapi32.AdjustTokenPrivileges(
+        TokenHandle,        # TokenHandle
+        False,              # DisableAllPrivileges
+        ctypes.byref(tp),   # NewState (TOKEN_PRIVILEGES struct) (opt)
+        0,                  # BufferLength
+        None,               # [o] PreviousState (opt)
+        None                # [o] ReturnLength (opt)
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
 
-error = ctypes.get_last_error()
-if error == 0:
-    print(f"[+] Successfully flipped privilege: {priv_name}")
-elif error == 1300:
-    print(f"[!] Error code: {error}, Privilege not held by token")
-else:
-    print(f"[!] Unexpected error, Code: {error}")
+    # function returns TRUE upon successful execution of function
+    # - NOT whether assignment occurred successfully
+    # - need to check ctypes.get_last_error() to verify successful assignment
 
-
-# Visual confirmation from calling GetTokenInformation() again
-# - have to redo the whole process
-# - AdjustTokenPrivileges() does not update local buffer (token_privs)
-
-# Step 1
-size = wintypes.DWORD() 
-advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, None, 0, ctypes.byref(size))
-
-# Step 2
-buf = ctypes.create_string_buffer(size.value) 
-
-# Step 3
-if not advapi32.GetTokenInformation(TokenHandle, TokenInformationClass, buf, size.value, ctypes.byref(size)):
-    raise ctypes.WinError()
-
-# Step 4
-array_length = ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD)).contents.value
-
-# safety-check: compares array_length (read-in) with array_length (calcuated)
-# - comparison is performed in order to prevent over-reads
-# - in case read-in memory (PrivilegeCount) is corrupted, returning invalid/larger size
-#
-# calculate size of memory for var-length array, after header/PrivilegeCount
-# - size.value - ctypes.sizeof(wintypes.DWORD)
-# --> size.value,   total size of buffer, allocated by GetTokenInformation()
-# --> ctypes.sizeof(wintypes.DWORD),    size of first field PrivilegeCount (4-bytes)
-#
-# divide (//) memory for var-lengh array, by size of ONE array element
-# returns how many array elements, can fit remaining buffer
-# - // ctypes.sizeof(LUID_AND_ATTRIBUTES)
-
-max_array_length = (size.value - ctypes.sizeof(wintypes.DWORD)) // ctypes.sizeof(LUID_AND_ATTRIBUTES)
-
-if array_length > max_array_length:
-    sys.exit(f"[!] Error: returned PrivilegeCount from GetTokenInformation() invalid")
-
-# Step 5
-tp_new = createStruct_tokenPrivileges(array_length)
-
-# Step 6
-token_privs = ctypes.cast(buf, ctypes.POINTER(tp_new)).contents
-
-
-print(f"\n[+] Number of Privileges in Access Token: {token_privs.PrivilegeCount}")
-print("--------------------------------------------")
-
-
-
-
-# iterate through TOKEN_PRIVILEGES struct
-for i in range(token_privs.PrivilegeCount):
-
-    priv = token_privs.Privileges[i]
-    priv_status = 'ENABLED' if (priv.Attributes & SE_PRIVILEGE_ENABLED) else 'DISABLED'
-
-    # retrieve proper buffer size
-    size_name = wintypes.DWORD()
-    advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), None, ctypes.byref(size_name))
-
-    # allocate proper-sized buffer
-    lpName_buf = ctypes.create_unicode_buffer(size_name.value)
-
-    # print result
-    if not advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), lpName_buf, ctypes.byref(size_name)):
-        print(f"[!] LookupPrivilegeNameW() Failed, LUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
-        continue
-
+    ctypes.set_last_error(0)        # clear out any stale errors
+    error = ctypes.get_last_error()
+    if error == 0:
+        print(f"\n[+] Successfully flipped privilege, LUID: {selected_priv.Luid.HighPart, selected_priv.Luid.LowPart}")
+    elif error == 1300:
+        print(f"\n[!] Error code: {error}, Privilege not held by token")
     else:
-        print(f"[{i}] {lpName_buf.value} -> {priv_status}\tLUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
+        print(f"\n[!] Unexpected error, Code: {error}")
+
+
+
+##########################
+##### Function Calls #####
+##########################
+#
+# Steps:
+#
+# Privilege Information - RETRIEVE:
+# - retrieve TokenPrivileges buffer from Access Token
+# - cast buffer onto new TOKEN_PRIVILEGES struct
+#
+# Privilege Information - PRINT
+# - print all privileges
+# - choose which single-privilege to flip
+# - print single-privilege to be flipped
+#
+# Privilege Information - FLIP
+# - flip privilege
+#
+# Privilege Information - RETRIEVE (repeat)
+# - retrieve updated TokenPrivileges buffer from Access Token
+# - cast buffer onto new TOKEN_PRIVILEGES struct
+# - print single-privilege again, confirm that it was flipped
+
+
+##### Privilege Information - RETRIEVE
+buf, size = get_token_info_buffer(TokenHandle, TokenInformationClass)
+tokenPrivileges_full = cast_token_privileges(buf, size)
+
+
+##### Privilege Information - PRINT
+tokenPrivileges_printInfo(tokenPrivileges_full)
+
+# return int, and single LUID_AND_ATTRIBUTES struct
+tokenPrivileges_index, tokenPrivileges_object = tokenPrivileges_requestFlip(tokenPrivileges_full)
+
+# re-print TokenPrivilege information - only SINGLE value this time
+tokenPrivileges_printInfo(tokenPrivileges_full, tokenPrivileges_index)
+
+
+##### Privilege Information - FLIP
+tokenPrivileges_flipAttribute(TokenHandle, tokenPrivileges_object)
+
+##### Privilege Information - RETRIEVE (repeat)
+# re-call get_token_info_buffer
+buf_new, size_new = get_token_info_buffer(TokenHandle, TokenInformationClass)
+# cast buffer onto new TOKEN_PRIVILEGES struct
+tokenPrivileges_full_new = cast_token_privileges(buf_new, size_new)
+
+# print single-privilege again
+tokenPrivileges_printInfo(tokenPrivileges_full_new, tokenPrivileges_index, Flipped=True)
+
 
 
 
 ###################
 ##### Cleanup #####
 ###################
-'''
+
 print("\n[-] Closing opened handles:\n---------------------------")
 close_handle(ProcessHandle, "Process")
 close_handle(TokenHandle, "AccessToken")
-'''
