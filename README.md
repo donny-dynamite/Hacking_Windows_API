@@ -1,3 +1,11 @@
+TODO:
+- separate caveats into different file?
+- create folders for each script?
+- foreach script, include over-enginered + boilerplate versions?
+- stuff...
+
+
+
 # Hacking the Windows API with Python
 Notes from Brandon Dennis's course - Hacking the Windows API with Python (Udemy)
 
