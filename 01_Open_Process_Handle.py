@@ -9,12 +9,12 @@ CreateToolhelp32Snapshot()
 
 import ctypes
 from ctypes import wintypes
-import sys
 from collections import defaultdict
 from contextlib import contextmanager
 
 
 kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
+
 
 #####################
 ##### CONSTANTS #####
@@ -30,8 +30,6 @@ MAX_PATH = 260
 # OpenProcess()
 PROCESS_ALL_ACCESS = 0x1F0FFF               # likely to fail unless run elevated/as-admin
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # alternative, minimal privileges required
-
-
 
 
 
@@ -53,6 +51,7 @@ class PROCESSENTRY32W(ctypes.Structure):
         ("dwFlags",             wintypes.DWORD),
         ("szExeFile",           wintypes.WCHAR * MAX_PATH)
 ]
+
 
 
 
@@ -108,6 +107,7 @@ def close_handle(handle, name="Handle"):
     """
     Close open handles and set variable to None, to prevent dangling pointers
     """
+
     print(f"\nClosing Handle to {name}...")
     if not handle:
         raise ValueError(f"[!] Warning: {name} is None or invalid, nothing to close")
@@ -127,7 +127,6 @@ def group_pids_by_process():
     - snapshot taken of running processes - TH32CS_SNAPPROCESS
     - iterated by Process32FirstW -> Process32NextW, until empty
     """
-
 
     # - proc_groups -> for iterating whole list in full print-out
     # - pid_proc_map -> fast search for later-on PID validation
@@ -190,6 +189,7 @@ def request_pid(pid_map):
     """
     Return positive integer -> later validate if actual PID
     """
+
     while True:
         try:
             pid = int(input("\nPlease enter a valid PID: "))
@@ -208,6 +208,7 @@ def validate_pid(pid, pid_map):
     """
     Checks PID exists in previous 'fast-search' dictionary map
     """
+
     process_name = pid_map.get(pid)
                 
     if process_name:
