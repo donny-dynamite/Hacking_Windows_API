@@ -25,6 +25,7 @@ INVALID_HANDLE_VALUE = wintypes.HANDLE(-1)
 TH32CS_SNAPPROCESS = 0x02
 
 # PROCESSENTRY32W() struct
+# called by Process32FirstW() and Process32NextW()
 MAX_PATH = 260
 
 # OpenProcess()
