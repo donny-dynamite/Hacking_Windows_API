@@ -350,7 +350,7 @@ def tokenPrivileges_printInfo(token_privs, index=None, Flipped=False):
 
         # print result
         if advapi32.LookupPrivilegeNameW(None, ctypes.byref(priv.Luid), lpName, ctypes.byref(size)):
-            print(f"[{i}] {lpName.value} -> {priv_status}\tLUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
+            print(f"[{i}] {lpName.value:40} -> {priv_status:20}\tLUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
 
         else:
             print(f"[!] LookupPrivilegeNameW() Failed, LUID: ({priv.Luid.HighPart}, {priv.Luid.LowPart})")
@@ -452,31 +452,35 @@ def tokenPrivileges_flipAttribute(TokenHandle, selected_priv):
 # - print single-privilege again, confirm that it was flipped
 
 
-##### Privilege Information - RETRIEVE
+##### Privilege Information -> RETRIEVE #####
 buf, size = get_token_info_buffer(TokenHandle, TokenInformationClass)
 tokenPrivileges_full = cast_token_privileges(buf, size)
 
 
-##### Privilege Information - PRINT
+##### Privilege Information -> PRINT #####
+# Print all privilege information
 tokenPrivileges_printInfo(tokenPrivileges_full)
 
-# return int, and single LUID_AND_ATTRIBUTES struct
+# Request which privilege to flip
+# - return int, and single LUID_AND_ATTRIBUTES struct
 tokenPrivileges_index, tokenPrivileges_object = tokenPrivileges_requestFlip(tokenPrivileges_full)
 
-# re-print TokenPrivilege information - only SINGLE value this time
+# Re-print information for single privilege, given index
 tokenPrivileges_printInfo(tokenPrivileges_full, tokenPrivileges_index)
 
 
-##### Privilege Information - FLIP
+##### Privilege Information -> FLIP #####
+# Flip chosen privilege
 tokenPrivileges_flipAttribute(TokenHandle, tokenPrivileges_object)
 
 ##### Privilege Information - RETRIEVE (repeat)
-# re-call get_token_info_buffer
+# Re-retrieve TokenInformation buffer from Access Token (fresh copy)
 buf_new, size_new = get_token_info_buffer(TokenHandle, TokenInformationClass)
-# cast buffer onto new TOKEN_PRIVILEGES struct
+
+# Cast buffer onto new TOKEN_PRIVILEGES struct
 tokenPrivileges_full_new = cast_token_privileges(buf_new, size_new)
 
-# print single-privilege again
+# Print single-privilege again
 tokenPrivileges_printInfo(tokenPrivileges_full_new, tokenPrivileges_index, Flipped=True)
 
 
