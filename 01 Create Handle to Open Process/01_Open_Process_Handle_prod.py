@@ -96,14 +96,14 @@ kernel32.Process32NextW.restype = wintypes.BOOL
 ##### Function Definitions #####
 ################################
 
-def winerr():
+def winerr() -> OSError:
     """ Return a ctypes.WinError() with the last Windows API error """
     return ctypes.WinError(ctypes.get_last_error())
 
 
 
 
-def close_handle(handle, name="Handle"):
+def close_handle(handle: wintypes.HANDLE, name: str="Handle") -> None:
     """ Close open handles, to prevent dangling pointers """
 
     print(f"\n[+] Closing Handle to {name}... ", end='', flush=True)
@@ -113,12 +113,12 @@ def close_handle(handle, name="Handle"):
     if not kernel32.CloseHandle(handle):
         print(f"Failed! {name} handle: {handle}, Error: {winerr()}")
     else:
-        print(f"Successful. {name} handle: {handle.value}")
+        print(f"Successful -> {name} handle: {handle.value}")
 
 
 
 
-def group_pids_by_process():
+def group_pids_by_process() -> tuple[defaultdict[str, list[int]], dict[int, str]]:
     """
     Returns defaultdict() of process names, and list of associated PIDs
     - snapshot taken of running processes - TH32CS_SNAPPROCESS
@@ -126,10 +126,10 @@ def group_pids_by_process():
     """
 
     # proc_groups -> for iterating whole list in full print-out
-    proc_groups = defaultdict(list)
+    proc_groups: defaultdict[str, list[int]] = defaultdict(list)
 
     # pid_proc_map -> fast search for later-on PID validation
-    pid_to_proc_map = {}
+    pid_to_proc_map: dict[int, str] = {}
 
     pe32w = PROCESSENTRY32W()
     pe32w.dwSize = ctypes.sizeof(PROCESSENTRY32W)
@@ -158,14 +158,14 @@ def group_pids_by_process():
 
 
 
-def key_sort(name):
+def key_sort(name: str) -> str:
     """ Ensure processes sorted alphabetically, regardless of case """
     return re.sub(r'[^a-z0-9]', '', name.lower())
 
 
 
 
-def pause():
+def pause() -> None:
     """ Pause until user key press (any) """
     msg = "\nPress any key to continue (list PIDs by process) ..."
     print(msg, end='', flush=True)
@@ -175,7 +175,7 @@ def pause():
 
 
 
-def print_pids_by_process(process_groups):
+def print_pids_by_process(process_groups: dict[str, list[int]]) -> None:
     """
     Print Process Names -> associated PIDs -> count of PIDs
     - sorted alphabetically, then numerically
@@ -204,7 +204,7 @@ def print_pids_by_process(process_groups):
 
 
 
-def request_pid(pid_map):
+def request_pid(pid_map: dict[int, str]) -> int:
     """ Return positive integer -> later validate if actual PID """
     while True:
         try:
@@ -220,7 +220,7 @@ def request_pid(pid_map):
 
 
 
-def validate_pid(pid, pid_map):
+def validate_pid(pid: int, pid_map: dict[int, str]) -> bool:
     """ Checks if PID exists in previous 'fast-search' dict map """
     
     process_name = pid_map.get(pid)
@@ -251,7 +251,7 @@ def open_process(dwProcessId, dwDesiredAccess=PROCESS_ALL_ACCESS, bInheritHandle
     if not handle:
         raise winerr()
 
-    print(f" Successful. Process handle: {handle.value}")
+    print(f" Successful -> Process handle: {handle.value}")
 
     try:
         yield handle        # give caller, access to handle
@@ -270,7 +270,7 @@ def snapshot(flags=TH32CS_SNAPPROCESS):
     if hSnapshot == INVALID_HANDLE_VALUE:
         raise winerr()
 
-    print(f"Successful. Snapshot handle: {hSnapshot.value}")
+    print(f"Successful -> Snapshot handle: {hSnapshot.value}")
 
     try:
         yield hSnapshot     # give caller, access to handle
@@ -285,17 +285,17 @@ def snapshot(flags=TH32CS_SNAPPROCESS):
 ##### Process ID selection and validation #####
 ###############################################
 
-# Retrieve process snapshot -> returns two dicts{}
+# Retrieve process snapshot <- returns two dicts{}
 #
-# - proc_groups -> defaultdict() for full proc/pid printing
-# - pid_map -> fast PID validation, not needing to re-iterate proc_groups
+# - proc_groups: defaultdict()  -> for full proc/pid printing
+# - pid_map: dict[int, str]     -> fast PID validation, not needing to re-iterate proc_groups
 proc_groups, pid_map = group_pids_by_process()
 pause()
 
 # Print pids, grouped by process name 
 print_pids_by_process(proc_groups)
 
-# Ask/validate user entered PID -> returns int
+# Ask/validate user entered PID <- returns int
 chosen_pid = request_pid(pid_map)
 
 
