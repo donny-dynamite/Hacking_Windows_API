@@ -2,7 +2,7 @@ Each folder contains a number of scripts to demonstrate concept
 - __barebones_ -> minimal comments, no constants/structs/functions etc
 - __prod_ -> 'production' level with above, also context managers, error handling etc
 
-Note: 'prod' scripts will contain a lot of 'superfluous' code, eg for interactivity, print() outputs etc
+Note: 'production' level here is primarily to differentiate from barebones scripts, and is not an actual indication of quality. 'prod' scripts will contain a lot of 'superfluous' code, eg for interactivity, print() outputs etc
 
 
 # Hacking the Windows API with Python
