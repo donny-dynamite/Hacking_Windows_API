@@ -1,6 +1,6 @@
 Each folder contains a number of scripts to demonstrate concept
-- <filename>_barebones: minimal comments, no constants/structs/functions etc
-- <filename>_prod: 'production' level with above, also context managers, error handling etc
+- file_barebones: minimal comments, no constants/structs/functions etc
+- file_prod: 'production' level with above, also context managers, error handling etc
 
 Note: 'prod' scripts will contain a lot of 'superfluous' code, eg for interactivity, print() outputs etc
 
