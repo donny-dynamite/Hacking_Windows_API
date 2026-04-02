@@ -23,7 +23,7 @@ Notes and work based from Brandon Dennis's course - Hacking the Windows API with
 
 <br>
 
-**[+]** Complete hex values don't specifically need to be fully copied from doco, eg when specifying uType for MessageBoxW(). To display the OK/Cancel buttons in a message box, in doco the value is ```0x00000001```, however shortened hex ```0x1``` or the integer value ```1``` can also be passed
+**[+]** Complete hex values don't specifically need to be fully copied from doco, eg when specifying ```uType``` for ```MessageBoxW()```. To display the OK/Cancel buttons in a message box, in doco the value is ```0x00000001```, however short-hex ```0x1``` or decimal ```1``` can also be passed
 
 <br>
 
