@@ -1,10 +1,12 @@
+"""
+Get handle to a/current process
+"""
 import ctypes
 
 kernel32 = ctypes.WinDLL('kernel32.dll')
 PROCESS_ALL_ACCESS = 0x1F0FFF
 
-# two methods to create handle to current process
-# method 1
+# method 1 (or other non-current based on pid)
 pid = kernel32.GetCurrentProcessId()
 pHandle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
 
