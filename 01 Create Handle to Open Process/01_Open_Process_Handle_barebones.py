@@ -1,8 +1,6 @@
 import ctypes
-from ctypes import wintypes
 
 kernel32 = ctypes.WinDLL('kernel32.dll')
-
 PROCESS_ALL_ACCESS = 0x1F0FFF
 
 # two methods to create handle to current process
