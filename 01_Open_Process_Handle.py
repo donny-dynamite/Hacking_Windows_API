@@ -1,16 +1,6 @@
 """
-TODO: 
-- simplified explanation of what any of this means
-- assuming no context and background understand
-
-
-
-
-
-
-
 Open a handle to an existing process
-- PID selection / validation via python standard libraries
+- all code utilises python standard libraries
 
 CreateToolhelp32Snapshot()
 - 'snapshot' taken of running system processes
