@@ -93,7 +93,7 @@ kernel32.Process32NextW.restype = wintypes.BOOL
 
 
 ################################
-##### Function definitions #####
+##### Function Definitions #####
 ################################
 
 def winerr():
