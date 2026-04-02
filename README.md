@@ -2,11 +2,19 @@ Each folder contains a number of scripts to demonstrate concept
 - __barebones_ -> minimal comments, no constants/structs/functions error handling etc
 - __prod_ -> 'production' level with above, plus context managers, user prompts, etc
 
-**Note:** 
-- 'production' level here is primarily to differentiate from barebones scripts, and is not an actual indication of quality.
-- All 'prod' scripts utilise standard python library, with no third-party modules.
-- Will contain a lot of extra code, eg for interactivity, print() outputs etc
+<br>
 
+**Note:** Regarding 'production' scripts
+- 'production' here is primarily to differentiate from barebones scripts, and not an indication of quality
+- All code written utilising the standard python library, with no third-party modules
+- All scripts are stand-alone, where code normally imported via .h header files is written out in full (eg structs)
+- Scripts will contain a lot of extra code, eg for interactivity, print() outputs etc
+
+<br>
+
+**For the above reasons**, something that could only need 10 lines, may be written out in hundreds
+
+<br>
 
 # Hacking the Windows API with Python
 Notes and work based from Brandon Dennis's course - Hacking the Windows API with Python (Udemy)
