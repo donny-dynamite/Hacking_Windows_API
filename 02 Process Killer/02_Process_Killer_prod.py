@@ -276,6 +276,7 @@ def print_pids_by_process(process_groups: dict[str, list[int]]) -> None:
         
         print(f"{process_name:<40} {pid_list_str:<40} {count:<5}")
 
+    print('\n' + '-' * 87)
 
 
 
@@ -284,11 +285,14 @@ def request_process(proc_lookup: dict[str, list[int]]) -> list[int]:
     """
     Request/validate process name, returning associated PIPDs
     """
-    
-    print('\n' + '-' * 87)
-    while True:
-        proc_name = input("Enter process name: ").strip().lower()
 
+    while True:
+        proc_name = input("Enter process name ('r' to re-print): ").strip().lower()
+
+        if proc_name == 'r':
+            print_pids_by_process(proc_groups)
+            continue
+        
         # checking proc_lookup due to case-ness of process names
         pid_list = proc_lookup.get(proc_name)
         if not pid_list:
