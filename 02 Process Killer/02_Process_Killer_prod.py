@@ -493,7 +493,7 @@ pause()
 
 
 # ----------------------------------
-# Handle process selection
+# Manage selection of Process Name
 # ----------------------------------
 
 # print pids, grouped by process name 
@@ -504,7 +504,7 @@ pid_list = request_process(proc_lookup)
 
 
 # ----------------------------------
-# Handle Window Title selection
+# Manage selection of Window Title
 # ----------------------------------
 
 # return dict of pid/title k,v pairs
@@ -515,7 +515,7 @@ pid_for_window_title = request_window_title(pid_title_map)
 
 
 # ----------------------------------
-# Open Handle to process
+# Open handle to process
 # ----------------------------------
 
 with open_process(pid_for_window_title) as pHandle:
