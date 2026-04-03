@@ -1,4 +1,9 @@
-Each folder contains a number of scripts to demonstrate concept
+# Hacking the Windows API with Python
+Notes and work based from Brandon Dennis's course - Hacking the Windows API with Python (Udemy)
+
+<br><br><br>
+
+**TLDR;** Each folder contains a number of scripts to demonstrate concept
 - __barebones_ -> minimal comments, no constants/structs/functions error handling etc
 - __prod_ -> 'production' level with above, plus context managers, user prompts, etc
 
@@ -6,20 +11,17 @@ Each folder contains a number of scripts to demonstrate concept
 
 **Note:** Regarding 'production' scripts
 - 'production' here is primarily to differentiate from barebones scripts, and not an indication of quality
-- All code written utilising the standard python library, with no third-party modules
-- All scripts are stand-alone, where code normally imported via .h header files is written out in full (eg structs)
-- Scripts will contain a lot of extra code, eg for interactivity, print() outputs etc
+- all code written utilising the standard python library, with no third-party modules
+- all scripts are stand-alone, where code normally imported via .h header files is written out in full (eg structs)
+- scripts will contain a lot of extra code, eg for interactivity, print() outputs etc
 
 <br>
 
-**For the above reasons**, something that could only need 10 lines, may be written out in hundreds
-
-<br>
-
-# Hacking the Windows API with Python
-Notes and work based from Brandon Dennis's course - Hacking the Windows API with Python (Udemy)
+**For the above reasons**, something that could only need 10 lines, may be written out in hundreds... 🫠
 
 <br><br><br>
+
+
 
 **Observed caveats and things to watch out for**
 
