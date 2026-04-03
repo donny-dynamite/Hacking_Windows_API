@@ -1,6 +1,6 @@
 """
 Open a handle to an existing process
-- PID selection / validation via python standard libraries
+-------------------------------------
 
 Process listing/selection/validation via CreateToolhelp32Snapshot()
 - 'snapshot' taken, listing running processes on host
