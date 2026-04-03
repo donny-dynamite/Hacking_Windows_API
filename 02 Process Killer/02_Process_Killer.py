@@ -1,232 +1,526 @@
-'''
+"""
 Terminate process for a given window title
+------------------------------------------
 
-API calls used:
----------------
-FindWindowW()
-- retrieve window handle (HWND) for specified window title
-- uses Unicode variant to avoid encoding issues
+CreateToolhelp32Snapshot()
+- system snapshot, enumeration via Process32FirstW() -> Process32NextW()
 
-GetWindowThreadProcessId()
-- obtain process ID (PID) associated with window handle
+The barebones script uses FindWindowW(), as window-title is known/given
+- here, *all* window-titles are returned for a given process name (eg, notepad.exe)
+- and where process name has multiple instances/PIDs, all are processed
+- as such, EnumWindows() is utilised
 
-OpenProcess()
-- open a handle to target process using retrieved PID
+EnumWindows() <- EnumWindowsProc()
+- iterate all top-level windows, call-back function for processing each window
 
-TerminateProcess()
-- terminate process associated with opened handle
-'''
+Note: potential overwrite where a single PID has multiple titles, only last recorded 
+"""
+
 
 import ctypes
 from ctypes import wintypes
-import subprocess
-import sys
+from collections import defaultdict
+from contextlib import contextmanager
+import msvcrt
 
 
-# load required DLLs 
-user32   = ctypes.WinDLL('user32.dll',   use_last_error=True)
 kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
+user32 = ctypes.WinDLL('user32.dll', use_last_error=True)
 
 
-########################################
-###### FindWindowW() - user32.dll ######
-########################################
-'''
-Step 1: Enter process name -> check if exists
-Step 2: Return window titles as list
-Step 3: Select title based off index (0-base)
-Step 4: Retrieve window handle (HWND) to selected title
-'''
+# ----------------------------------
+# CONSTANTS
+# ----------------------------------
 
-# Step 1: Enter process name -> check if exists
-proc_name = input("\nEnter name of process: ")
+# kernel32.CreateToolhelp32Snapshot()
+INVALID_HANDLE_VALUE = wintypes.HANDLE(-1)
+TH32CS_SNAPPROCESS = 0x02
 
-proc_check = subprocess.run(
-    ["powershell", "-NoProfile", "-Command", "Get-Process", "-Name", proc_name],
-    capture_output=True, text=True
+# PROCESSENTRY32W() struct
+MAX_PATH = 260
+
+# OpenProcess()
+PROCESS_ALL_ACCESS = 0x1F0FFF  # likely to fail unless run elevated/as-admin
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # alternative, minimal privs required
+
+
+# ----------------------------------
+# Struct Definitions
+# ----------------------------------
+
+class PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize",              wintypes.DWORD),
+        ("cntUsage",            wintypes.DWORD),
+        ("th32ProcessID",       wintypes.DWORD),
+        ("th32DefaultHeapID",   ctypes.c_size_t),
+        ("th32ModuleID",        wintypes.DWORD),
+        ("cntThreads",          wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase",      wintypes.LONG),
+        ("dwFlags",             wintypes.DWORD),
+        ("szExeFile",           wintypes.WCHAR * MAX_PATH)
+]
+
+
+# ----------------------------------
+# Callback Types
+#----------------------------------
+
+# call-back function passed to EnumWindows()
+EnumWindowsProc  = ctypes.WINFUNCTYPE(
+    wintypes.BOOL,      # return type
+    wintypes.HWND,      # hWnd, handle to a top-level window
+    wintypes.LPARAM     # lParam, app-defined value given in EnumWindows()
 )
 
-if not proc_check.stdout.strip():
-    sys.exit(f"\n[!] ProcessName '{proc_name}' not found. Exiting.")
 
+# ----------------------------------
+# Function Signatures
+# ----------------------------------
 
-# Step 2: Return window titles as list
-ps_script = f'''
-    Get-Process -Name "{proc_name}" -EA 0 |
-    Where-Object {{ $_.MainWindowTitle }} |
-    ForEach-Object {{ $_.MainWindowTitle }}
-'''
+# ----- kernel32 -----
+kernel32.CloseHandle.argtypes = [ wintypes.HANDLE, ]  # hObject
+kernel32.CloseHandle.restype = wintypes.BOOL
 
-ps_titles = subprocess.run(
-    ["powershell", "-NoProfile", "-Command", ps_script],
-    capture_output=True, text=True
-)
-
-window_titles = [line.strip() for line in ps_titles.stdout.splitlines() if line.strip()]
-
-if not window_titles:
-    sys.exit(f"[!] No visible windows found for process '{proc_name}': Exiting.")
-else:
-    print("\nAvailable Window Titles:\n------------------------")
-    for i, title in enumerate(window_titles, start=0):
-        print(f"[{i}]: {title}")
-
-
-# Step 3: Select title based off index (0-base)
-while True:
-    try:
-        window_choice = int(input("\nSelect number for window title: "))
-        # if ((window_choice >= 0) and (window_choice < len(window_titles)):
-        if 0 <= window_choice < len(window_titles):
-            title_choice = window_titles[window_choice]
-            break
-        else:
-            print(f"[!] Please enter a number between 0 and {len(window_titles) -1}.")
-    except ValueError:
-        print("[!] Invalid input. Please enter a number from above.")
-
-
-# Step 4: Retrieve window handle (HWND) to selected title
-#
-# Ref FindWindowW() - https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-FindWindowW
-
-# def func() sigs and params
-user32.FindWindowW.argtypes = [
-    wintypes.LPCWSTR,   # lpClassName
-    wintypes.LPCWSTR    # lpWindowName
+kernel32.CreateToolhelp32Snapshot.argtypes=[
+    wintypes.DWORD,     # dwFlags
+    wintypes.DWORD,     # th32ProcessID
 ]
-user32.FindWindowW.restype = wintypes.HWND
+kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
 
-g_lpClassName = None
-g_lpWindowName = title_choice
-
-
-# func() def to wrap FindWindowW()
-def find_window(lpClassName, lpWindowName):
-    ret = user32.FindWindowW(lpClassName, lpWindowName)
-    if not ret:
-        raise ctypes.WinError()
-    return ret
-
-
-try:
-    fwa_hWnd = find_window(g_lpClassName, g_lpWindowName)
-    print(f"\n[+] FindWindowW() Successful, Window Handle: {fwa_hWnd}\n")
-except OSError as e:
-    sys.exit(f"\n[!] FindWindowW() Failed, Error Code: {e}\n")
-
-
-
-
-#####################################################
-###### GetWindowThreadProcessId() - user32.dll ######
-#####################################################
-#
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowthreadprocessid
-# LPDWORD lpdwProcessId - output parameter, therefore value to be stored in prepared variable (DWORD)
-
-# def func() sigs and params
-user32.GetWindowThreadProcessId.argtypes =[
-    wintypes.HWND,      # hWnd
-    wintypes.LPDWORD    # lpdwProcessId
-]
-user32.GetWindowThreadProcessId.restype  = wintypes.DWORD
-
-g_hWnd = fwa_hWnd # from above ret for FindWindowW()
-g_lpdwProcessId = ctypes.wintypes.DWORD()
-
-
-# func() def to wrap GetWindowThreadProcessId()
-def get_thread(hWnd, lpdwProcessId):
-    ret = user32.GetWindowThreadProcessId(hWnd, lpdwProcessId)
-    if not ret:
-        raise ctypes.WinError()
-    return ret
- 
- 
-try:
-    thread_id = get_thread(g_hWnd, ctypes.byref(g_lpdwProcessId))
-    print(f"[+] GetWindowThreadProcessId() Successful:")
-    print(f"\tProcess: {proc_name}")
-    print(f"\tThread ID: {thread_id}")
-    print(f"\tProcess ID: {g_lpdwProcessId.value}")
-except OSError as e:
-    sys.exit(f"\n[!] GetWindowThreadProcessId() Failed, Error Code: {e}")
-
-
-
-
-##########################################
-###### OpenProcess() - kernel32.dll ######
-##########################################
-#
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess
-
-# def func() sigs and params
 kernel32.OpenProcess.argtypes = [
-    wintypes.DWORD, # dwDesiredAccess
-    wintypes.BOOL,  # bInheritHandle
-    wintypes.DWORD  # dwProcessId
+    wintypes.DWORD,    # dwDesiredAccess
+    wintypes.BOOL,     # bInheritHandle
+    wintypes.DWORD,    # dwProcessId
 ]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 
-PROCESS_ALL_ACCESS = 0x1F0FFF
+kernel32.Process32FirstW.argtypes = [
+    wintypes.HANDLE,                    # hSnapshot
+    ctypes.POINTER(PROCESSENTRY32W),    # [o] lppe, proc-list entry from snapshot
+]
+kernel32.Process32FirstW.restype = wintypes.BOOL
 
-g_dwDesiredAccess = PROCESS_ALL_ACCESS
-g_bInheritHandle = False
-g_dwProcessId = g_lpdwProcessId.value   # from GetWindowThreadProcessId() above
+kernel32.Process32NextW.argtypes=[
+    wintypes.HANDLE,                    # hSnapshot
+    ctypes.POINTER(PROCESSENTRY32W),    # [o] lppe, proc-list entry from snapshot
+]
+kernel32.Process32NextW.restype = wintypes.BOOL
 
-
-# func() def to wrap OpenProcess()
-def open_handle(dwDesiredAccess, bInheritHandle, dwProcessId):
-    ret = kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId)
-    if not ret:
-        raise ctypes.WinError()
-    return ret
-
-
-try:
-    proc_handle = open_handle(g_dwDesiredAccess, g_bInheritHandle, g_dwProcessId)
-    print(f"\n[+] OpenProcess() Successful, Process Handle: {proc_handle}")
-except OSError as e:
-    sys.exit(f"\n[!] OpenProcess() Failed, Error Code: {e}")
-
-
-
-
-###############################################
-###### TerminateProcess() - kernel32.dll ######
-###############################################
-#
-# Ref: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess
-
-# def func() sigs and params
 kernel32.TerminateProcess.argtypes = [
     wintypes.HANDLE,    # hProcess
     wintypes.UINT       # uExitCode
 ]
 kernel32.TerminateProcess.restype = wintypes.BOOL
 
-# for final cleanup
-kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-kernel32.CloseHandle.restype = wintypes.BOOL
+# ----- user32 -----
+user32.EnumWindows.argtypes = [
+    EnumWindowsProc,    # lpEnumFunc, pointer to call-back function (defined above)
+    wintypes.LPARAM,    # lParam, app-defined valued passed to call-back func
+]
+user32.EnumWindows.restype = wintypes.BOOL
 
-g_hProcess = proc_handle    # from OpenProcess() above
-g_uExitCode = 0
+user32.GetWindowThreadProcessId.argtypes =[
+    wintypes.HWND,      # hWnd
+    wintypes.LPDWORD    # [o] lpdwProcessId (opt)
+]
+user32.GetWindowThreadProcessId.restype  = wintypes.DWORD
+
+user32.GetWindowTextLengthW.argtypes = [
+    wintypes.HWND,      # hWnd, handle to window
+]
+user32.GetWindowTextLengthW.restype = wintypes.INT
+
+user32.GetWindowTextW.argtypes = [
+    wintypes.HWND,      # hWnd, window to handle (or control) containing text
+    wintypes.LPWSTR,    # [o] lpString, buffer to receive string
+    wintypes.INT,       # nMaxCount, max chars to copy to buffer (including null)
+]
+user32.GetWindowTextW.restype = wintypes.INT
+
+user32.IsWindowVisible.argtypes = [
+    wintypes.HWND,       # hWnd, handle to window
+]
+user32.IsWindowVisible.restype = wintypes.BOOL
 
 
-def kill_proc(hProcess, uExitCode):
-    ret = kernel32.TerminateProcess(hProcess, uExitCode)
-    if not ret:
-        raise ctypes.WinError()
-    return ret
+
+# ----------------------------------
+# Function Definitions
+# ----------------------------------
+
+def winerr() -> OSError:
+    """ Return a ctypes.WinError() with the last Windows API error """
+    return ctypes.WinError(ctypes.get_last_error())
 
 
-try:
-    term_proc = kill_proc(g_hProcess, g_uExitCode)
-    print(f"\n[+] TerminateProcess() Successful, Process ID killed: {g_dwProcessId}")
-except OSError as e:
-    sys.exit(f"\n[!] TerminateProcess() Failed, Error Code: {e}")
-finally:
-    if g_hProcess:
-        kernel32.CloseHandle(g_hProcess)
+
+
+def close_handle(handle: wintypes.HANDLE, name: str="Handle") -> None:
+    """ Close open handles, to prevent dangling pointers """
+
+    print(f"\n[+] Closing Handle to {name}... ", end='', flush=True)
+    if handle is None or handle.value == 0:
+        raise ValueError(f"[!] Warning: {name} is None or invalid, nothing to close")
+
+    if not kernel32.CloseHandle(handle):
+        print(f"Failed! {name} handle: {handle}, Error: {winerr()}")
+    else:
+        print(f"Successful -> {name} handle: {handle.value}")
+
+
+
+
+def group_pids_by_process() -> tuple[
+            defaultdict[str, list[int]],
+            dict[str, list[int]]
+]:
+    """
+    Snapshot taken of running processes -> TH32CS_SNAPPROCESS
+    - iterated by Process32FirstW -> Process32NextW, until empty
+
+    Returns a numer of dictionaries later used for different purposes
+    [+] proc_groups: 
+    - defaultdict() of process names, and list of associated PIDs
+    - for iteration of full-print out 
+
+    [+] pid_to_proc_map: O(1)
+    - PID validation, 1:1 of PID to process name
+    
+    [+] proc_lookup: O(1)
+    - reference-dict, stored as names.lower() to handle case-ness of filenames
+    - keys point to same list-object (value) in proc_groups
+    """
+
+    # proc_groups -> for iterating whole list in full print-out
+    proc_groups: defaultdict[str, list[int]] = defaultdict(list)
+
+    # pre-define dicts for quicker O(1) searches, v O(n)
+    # - pid_proc_map -> PID validation
+    # - proc_lookup -> process validation
+    # pid_to_proc_map: dict[int, str] = {}
+    proc_lookup: dict[str, list[int]] ={}
+
+    pe32w = PROCESSENTRY32W()
+    pe32w.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+
+    # Context Manager - snapshot
+    with snapshot(TH32CS_SNAPPROCESS) as hSnapshot: 
+        if not kernel32.Process32FirstW(hSnapshot, ctypes.byref(pe32w)):
+            raise winerr()
+
+        print("--> Taking Snapshot of running processes... ", end='', flush=True)
+
+        while True:
+            name = pe32w.szExeFile      # process name
+            pid  = pe32w.th32ProcessID  # leave PIDs as ints in list
+
+            proc_groups[name].append(pid)
+            # rapid look-up dicts{}
+            # pid_to_proc_map[pid] = name
+            proc_lookup[name.lower()] = proc_groups[name]
+            
+                
+            if not kernel32.Process32NextW(hSnapshot, ctypes.byref(pe32w)):
+                break
+
+        print("Completed")
+
+    return proc_groups, proc_lookup
+
+
+
+
+def key_sort(name: str) -> str:
+    """ Ensure processes sorted alphabetically, regardless of case """
+    #return re.sub(r'[^a-z0-9]', '', name.lower())
+    return name.casefold()
+
+
+
+
+def pause() -> None:
+    """ Pause until user key press (any) """
+    msg = "\nPress any key to continue (list PIDs by process) ..."
+    print(msg, end='', flush=True)
+    msvcrt.getch()
+    print()
+
+
+
+
+def print_pids_by_process(process_groups: dict[str, list[int]]) -> None:
+    """
+    Print Process Names -> associated PIDs -> count of PIDs
+    - sorted alphabetically, then numerically
+    - PID list truncated if too long (eg svchost.exe)
+    """
+
+    # header info
+    print(f"\n{'Process Name':<40} {'PID':<40} {'Count':>5}")
+    print('-' * 87)
+
+
+    for process_name in sorted(process_groups.keys(), key=key_sort):
+        sorted_pids = sorted(process_groups[process_name])
+        
+        # join pids -> must first be converted to type str()
+        pid_list_str = ', '.join(str(pid) for pid in sorted_pids)
+        
+        count = len(sorted_pids)
+        
+        # truncate long list of PIDs
+        if len(pid_list_str) > 35:
+            pid_list_str = pid_list_str[:35] + '...'
+        
+        print(f"{process_name:<40} {pid_list_str:<40} {count:<5}")
+
+
+
+
+
+def request_process(proc_lookup: dict[str, list[int]]) -> list[int]:
+    """
+    Request/validate process name, returning associated PIPDs
+    """
+    
+    print('\n' + '-' * 87)
+    while True:
+        proc_name = input("Enter process name: ").strip().lower()
+
+        # checking proc_lookup due to case-ness of process names
+        pid_list = proc_lookup.get(proc_name)
+        if not pid_list:
+            print(f"\n[!] Error, Process '{proc_name}' not found")
+        else:
+            print(f"\n[+] Found PIDs: {pid_list}")
+            return pid_list
+
+
+
+
+def get_window_titles(pid_list: list[int]) -> dict[int, str]:
+    pid_title_map: dict[int, str] = {}
+
+    # decorator that wraps func -> converts to C func pointer that can be called
+    @EnumWindowsProc
+    def callback(hWnd, lParam):
+        """
+        CallBack function for user32.EnumWindows()
+        
+        Function iterates through every single top-level window on system...
+        - passing-in handle to callback function
+        
+        Callback function performs following operations:
+        - check window-PID, matches given process-PID
+        - check if window 'logically visible'
+        - retrieves the window title, appending it to a list
+
+        Return True - continue enumeration
+        - ie, move onto next window in sequence
+        - similar to 'continue' within a loop
+        
+        Return False - stop enumeration
+        - similar to 'break' within a loop
+        
+        user32.IsWindowVisible()
+        - some processes will have a single PID, but multiple possible titles
+        - eg notepad++.exe, where each tab will change the Window Title contents
+        - this function will only return the 'visible' window/tab, not any others
+        """
+
+        # get PID for window, and check if in pid_list
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hWnd, ctypes.byref(pid))
+        
+        if pid.value not in pid_list:
+            return True
+
+        # check if 'logically visible'
+        if not user32.IsWindowVisible(hWnd):
+            return True
+
+
+        # get window title
+        size = user32.GetWindowTextLengthW(hWnd)
+        if size == 0:
+            return True
+        
+        buf = ctypes.create_unicode_buffer(size + 1)
+        user32.GetWindowTextW(hWnd, buf, size + 1)
+
+        title = buf.value.strip()
+        if title:
+            pid_title_map[pid.value] = title    # store PID and title in dict
+
+        # end of checks for current window title
+        return True
+    
+    user32.EnumWindows(callback, 0)
+    return pid_title_map
+
+
+
+
+def request_window_title(pid_title_map: dict[int, str]) -> int:
+    """
+    Print list of titles, and associated index
+    - request user to select title, given index
+    - return PID for selected window title    
+    """
+
+    # header info
+    print("\nAvailable Window Titles:\n" + "-" * 36)
+
+    # print available window titles
+    for i, (pid, title) in enumerate(pid_title_map.items()):
+        print(f"[{i}]: Title, {title:<30} (pid: {pid})")
+
+    length = len(pid_title_map)
+
+    while True:
+        try:
+            selection = int(input("\nSelect number for window title: "))
+
+            if 0 <= selection < length:
+                # convert dict -> list, to access key/PID by index
+                title_choice = list(pid_title_map.keys())[selection]
+                return title_choice
+
+            else:
+                print(f"[!] Please enter a number between 0 and {length -1}.")
+
+        except ValueError:
+            print("[!] Invalid input. Please enter a number from above.")
+
+
+
+
+'''
+Note: these functions are not required for this script
+- kept for posterity
+
+def request_pid(pid_map: dict[int, str]) -> int:
+    """ Return positive integer -> later validate if actual PID """
+    while True:
+        try:
+            pid = int(input("\nPlease enter a valid PID: "))
+            if pid > 0:
+                if validate_pid(pid, pid_map):
+                    return pid
+            else:
+                print("[!] Please enter a positive integer: ")
+        except ValueError as e:
+            print(f"\n[!] Invalid Input, Error: {e}")
+
+
+
+
+def validate_pid(pid: int, pid_map: dict[int, str]) -> bool:
+    """ Checks if PID exists in previous 'fast-search' dict map """
+    
+    process_name = pid_map.get(pid)
+
+    if process_name:
+        print(f"[+] PID found: {pid}, Process: {process_name}")
+        return True
+    else:
+        print(f"[!] Error: PID {pid} not found in snapshot")
+        return False
+'''
+
+
+# ----------------------------------
+# Context Managers
+# ----------------------------------
+#
+# To be able to use 'with x as y:'
+# - to automatically close handles upon exit
+
+@contextmanager
+def open_process(dwProcessId, dwDesiredAccess=PROCESS_ALL_ACCESS, bInheritHandle=False):
+    print(f"\n[+] Opening Handle to process... ", end='', flush=True)
+
+    handle = wintypes.HANDLE(kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId))
+
+    if not handle:
+        raise winerr()
+
+    print(f" Successful -> Process handle: {handle.value}")
+
+    try:
+        yield handle        # give caller, access to handle
+    finally:
+        close_handle(handle, "Process")
+        handle.value = 0
+
+
+
+
+@contextmanager
+def snapshot(flags=TH32CS_SNAPPROCESS):
+    print("\n[+] Creating handle to Snapshot... ", end='', flush=True)
+    hSnapshot = wintypes.HANDLE(kernel32.CreateToolhelp32Snapshot(flags, 0))
+
+    if hSnapshot == INVALID_HANDLE_VALUE:
+        raise winerr()
+
+    print(f"Successful -> Snapshot handle: {hSnapshot.value}")
+
+    try:
+        yield hSnapshot     # give caller, access to handle
+    finally:
+        close_handle(hSnapshot, "Snapshot")
+        hSnapshot.value = 0
+
+
+
+
+##########################################
+##### Main functionality starts here #####
+##########################################
+
+# ----------------------------------
+# Process system snapshot
+# ----------------------------------
+
+# <- proc_groups: defaultdict[str, list[int]]
+# <- proc_lookup: dict[str, list[int]]
+
+proc_groups, proc_lookup = group_pids_by_process()
+pause()
+
+
+# ----------------------------------
+# Handle process selection
+# ----------------------------------
+
+# print pids, grouped by process name 
+print_pids_by_process(proc_groups)
+
+# User-Input -> request process name <- return associated PIDs
+pid_list = request_process(proc_lookup)
+
+
+# ----------------------------------
+# Handle Window Title selection
+# ----------------------------------
+
+# return dict of pid/title k,v pairs
+pid_title_map = get_window_titles(pid_list)
+
+# User-Input -> select window title <- return pid for window title
+pid_for_window_title = request_window_title(pid_title_map)
+
+
+# ----------------------------------
+# Open Handle to process
+# ----------------------------------
+
+with open_process(pid_for_window_title) as pHandle:
+    # print("\n--> Do Stuff Here...")
+    
+    # terminate process
+    print(f"\n[!] Terminating Process Id: {pid_for_window_title}")
+    kernel32.TerminateProcess(pHandle,0)
