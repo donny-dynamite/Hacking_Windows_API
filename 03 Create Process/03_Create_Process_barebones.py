@@ -43,6 +43,8 @@ class PROCESS_INFORMATION (ctypes.Structure):
 # ----------------------------------
 
 lpApplicationName = r"c:\windows\system32\cmd.exe"
+
+# proper to initialise structures here, but following works
 kernel32.CreateProcessW(lpApplicationName, None, None, None, False, 0x10, None, None, 
                    ctypes.byref(STARTUPINFOW()), 
                    ctypes.byref(PROCESS_INFORMATION())
