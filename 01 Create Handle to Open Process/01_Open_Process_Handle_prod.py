@@ -12,7 +12,6 @@ from ctypes import wintypes
 from collections import defaultdict
 from contextlib import contextmanager
 import msvcrt
-import re
 
 
 kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
@@ -171,7 +170,7 @@ def group_pids_by_process() -> tuple[
 
 def key_sort(name: str) -> str:
     """ Ensure processes sorted alphabetically, regardless of case """
-    return re.sub(r'[^a-z0-9]', '', name.lower())
+    return name.casefold()
 
 
 
