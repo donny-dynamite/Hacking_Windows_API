@@ -18,9 +18,9 @@ import re
 kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
 
 
-#####################
-##### CONSTANTS #####
-#####################
+# ----------------------------------
+# CONSTANTS
+# ----------------------------------
 
 # kernel32.CreateToolhelp32Snapshot()
 INVALID_HANDLE_VALUE = wintypes.HANDLE(-1)
@@ -36,9 +36,10 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # alternative, minimal privileges re
 
 
 
-##############################
-##### Struct Definitions #####
-##############################
+# ----------------------------------
+# Struct Definitions
+# ----------------------------------
+
 
 class PROCESSENTRY32W(ctypes.Structure):
     _fields_ = [
@@ -57,9 +58,9 @@ class PROCESSENTRY32W(ctypes.Structure):
 
 
 
-###############################
-##### Function Signatures #####
-###############################
+# ----------------------------------
+# Function Signatures
+# ----------------------------------
 
 kernel32.CloseHandle.argtypes = [ wintypes.HANDLE, ]  # hObject
 kernel32.CloseHandle.restype = wintypes.BOOL
@@ -92,9 +93,9 @@ kernel32.Process32NextW.restype = wintypes.BOOL
 
 
 
-################################
-##### Function Definitions #####
-################################
+# ----------------------------------
+# Function Definitions
+# ----------------------------------
 
 def winerr() -> OSError:
     """ Return a ctypes.WinError() with the last Windows API error """
@@ -118,11 +119,21 @@ def close_handle(handle: wintypes.HANDLE, name: str="Handle") -> None:
 
 
 
-def group_pids_by_process() -> tuple[defaultdict[str, list[int]], dict[int, str]]:
+def group_pids_by_process() -> tuple[
+            defaultdict[str, list[int]],
+            dict[int, str]
+]:
     """
-    Returns defaultdict() of process names, and list of associated PIDs
-    - snapshot taken of running processes - TH32CS_SNAPPROCESS
+    Snapshot taken of running processes -> TH32CS_SNAPPROCESS
     - iterated by Process32FirstW -> Process32NextW, until empty
+
+    Returns a numer of dictionaries later used for different purposes
+    [+] proc_groups: 
+    - defaultdict() of process names, and list of associated PIDs
+    - for iteration of full-print out 
+
+    [+] pid_to_proc_map: O(1)
+    - PID validation, 1:1 of PID to process name
     """
 
     # proc_groups -> for iterating whole list in full print-out
@@ -235,9 +246,9 @@ def validate_pid(pid: int, pid_map: dict[int, str]) -> bool:
 
 
 
-############################
-##### Context Managers #####
-############################
+# ----------------------------------
+# Context Managers
+# ----------------------------------
 #
 # To be able to use 'with x as y:'
 # - to automatically close handles upon exit
@@ -281,16 +292,23 @@ def snapshot(flags=TH32CS_SNAPPROCESS):
 
 
 
-###############################################
-##### Process ID selection and validation #####
-###############################################
+##########################################
+##### Main functionality starts here #####
+##########################################
 
-# Retrieve process snapshot <- returns two dicts{}
-#
-# - proc_groups: defaultdict()  -> for full proc/pid printing
-# - pid_map: dict[int, str]     -> fast PID validation, not needing to re-iterate proc_groups
+# ----------------------------------
+# Process system snapshot
+# ----------------------------------
+
+# <- proc_groups: defaultdict[str, list[int]]
+# <- pid_map: dict[int, str]
+
 proc_groups, pid_map = group_pids_by_process()
 pause()
+
+# ----------------------------------
+# Manage selection of Process Id
+# ----------------------------------
 
 # Print pids, grouped by process name 
 print_pids_by_process(proc_groups)
@@ -299,11 +317,9 @@ print_pids_by_process(proc_groups)
 chosen_pid = request_pid(pid_map)
 
 
-
-
-#########################################################
-##### Create handle to open process - OpenProcess() #####
-#########################################################
+# ----------------------------------
+# Open handle to process
+# ----------------------------------
 
 with open_process(chosen_pid) as pHandle:
     print("\n--> Do Stuff Here...")
