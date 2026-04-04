@@ -163,7 +163,8 @@ def close_handle(handle: wintypes.HANDLE, name: str="Handle") -> None:
     print(f"\n[+] Closing Handle to {name}... ", end='', flush=True)
 
     if handle is None or handle.value == 0:
-        raise ValueError(f"[!] Warning: {name} is None or invalid, nothing to close")
+        print(f"[!] Warning: {name} is None or invalid, nothing to close")
+        return
 
     if not kernel32.CloseHandle(handle):
         print(f"Failed! {name} handle: {handle}, Error: {winerr()}")
