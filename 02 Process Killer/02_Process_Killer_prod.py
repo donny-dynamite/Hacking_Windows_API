@@ -6,8 +6,8 @@ CreateToolhelp32Snapshot()
 - system snapshot, enumeration via Process32FirstW() -> Process32NextW()
 
 The barebones script uses FindWindowW(), as window-title is known/given
-- here, *all* window-titles are returned for a given process name (eg, notepad.exe)
-- and where process name has multiple instances/PIDs, all are processed
+- here, *all* window-titles are iterated through
+- all PIDs associated with given process name are processed (eg, notepad.exe)
 - as such, EnumWindows() is utilised
 
 EnumWindows() <- EnumWindowsProc()
@@ -64,7 +64,7 @@ class PROCESSENTRY32W(ctypes.Structure):
 
 
 # ----------------------------------
-# Callback Types
+# Callback Type
 #----------------------------------
 
 # call-back function passed to EnumWindows()
@@ -76,7 +76,7 @@ EnumWindowsProc  = ctypes.WINFUNCTYPE(
 
 
 # ----------------------------------
-# Function Signatures
+# Function Prototypes
 # ----------------------------------
 
 # ----- kernel32 -----
