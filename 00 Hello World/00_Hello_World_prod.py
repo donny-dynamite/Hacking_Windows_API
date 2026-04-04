@@ -23,7 +23,7 @@ MB_YESNO                = 0x04
 
 
 # ----------------------------------
-# Function Signature
+# Function Prototype
 # ----------------------------------
 
 user32.MessageBoxW.argtypes = [
