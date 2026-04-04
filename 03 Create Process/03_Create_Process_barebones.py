@@ -7,7 +7,11 @@ from ctypes import wintypes
 
 kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
 
+
+# ----------------------------------
 # Struct Definitions -> required by CreateProcessW()
+# ----------------------------------
+
 class STARTUPINFOW(ctypes.Structure):
     _fields_ = [
         ("cb",                wintypes.DWORD),
@@ -44,7 +48,7 @@ class PROCESS_INFORMATION (ctypes.Structure):
 
 lpApplicationName = r"c:\windows\system32\cmd.exe"
 
-# proper to initialise structures here, but following works
+# proper to initialise structs here, but following works
 kernel32.CreateProcessW(lpApplicationName, None, None, None, False, 0x10, None, None, 
                    ctypes.byref(STARTUPINFOW()), 
                    ctypes.byref(PROCESS_INFORMATION())
