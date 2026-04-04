@@ -1,5 +1,9 @@
 """
-Create process for cmd.exe using CreateProcessW()
+Spawn cmd.exe using CreateProcessW()
+
+Alternatively:
+- spawn other process (eg, notepad.exe)
+- run command line (eg, cmd.exe /k whoami /all)
 """
 
 import ctypes
@@ -117,24 +121,28 @@ def close_handle(handle: wintypes.HANDLE, name: str="Handle") -> None:
 
 
 
-def create_process(application: str=r"c:\windows\system32\cmd.exe",
-                   creation_flags: int = CREATE_NEW_CONSOLE
+def create_process(app: str=r"c:\windows\system32\cmd.exe",
+                   cmd: str=None,
+                   flags: int=CREATE_NEW_CONSOLE
                   ) -> tuple[int, int, str]:
-
     """
     Create a new process using CreateProcessW()
     
     Args:
-    - application (str): full path to executable
-    - creation_flags (int): process creation flags, eg CREATE_NO_WINDOW
+    -----
+    app (str): full path to executable
+    cmd (str): command line to execute -> conv. to mutable buffer
+               - raw-string is immutable, stored in r/o memory
+               - access-violation risk if CreateProcessW() attempts write
+    flags (int): process creation flags, eg CREATE_NO_WINDOW
     """
     
-    lpApplicationName = application
-    lpCommandLine = None
+    lpApplicationName = app
+    lpCommandLine = ctypes.create_unicode_buffer(cmd) if cmd else None
     lpProcessAttributes = None
     lpThreadAttributes = None
     bInheritHandles = False
-    dwCreationFlags = creation_flags
+    dwCreationFlags = flags
     lpEnvironment = None
     lpCurrentDirectory = None
 
@@ -157,10 +165,13 @@ def create_process(application: str=r"c:\windows\system32\cmd.exe",
                        ctypes.byref(lpProcessInformation)):
             raise winerr()
 
+        # for when passing in cmd, and where app=None
+        executed_process = app if app else cmd
+
         # print information for Handles -> process / thread
 
         print("\n\n# " + "-" * 40)
-        print(f"[+] CreateProcessW() Successful -> {lpApplicationName}")
+        print(f"[+] CreateProcessW() Successful -> {executed_process}")
         print("# " + "-" * 40)
         
         print(f"-> Handle to Process: {lpProcessInformation.hProcess}")
@@ -170,10 +181,10 @@ def create_process(application: str=r"c:\windows\system32\cmd.exe",
         pid = lpProcessInformation.dwProcessId
         tid = lpProcessInformation.dwThreadId
 
-        return pid, tid, lpApplicationName
+        return pid, tid, executed_process
         
     except OSError as e:
-        raise OSError(f"\n[!] CreateProcessW() Failed, Application: {application}, Error: {e}")
+        raise OSError(f"\n[!] CreateProcessW() Failed, Application: {app}, Error: {e}")
             
     finally:
         hProcess = wintypes.HANDLE(lpProcessInformation.hProcess)
@@ -201,17 +212,27 @@ def print_process_info(pid: int, tid: int, app: str) -> None:
 ##########################################
 
 # ----------------------------------
-# default call
+# default call - spawn cmd.exe
 # ----------------------------------
-
+'''
 pid, tid, app = create_process()
 print_process_info(pid, tid, app)
-
+'''
 
 # ----------------------------------
-# pass-in a specific application
+# pass specific application - full path
+# ----------------------------------
+'''
+app = r"c:\windows\system32\notepad.exe"
+pid, tid, app = create_process(app=app)
+print_process_info(pid, tid, app)
+'''
+
+# ----------------------------------
+# pass-in a specific command line
 # ----------------------------------
 
-application = r"c:\windows\system32\notepad.exe"
-pid, tid, app = create_process(application)
+# app=None intentional, as cmd="" specified
+cmd = r"cmd.exe /k whoami /all"
+pid, tid, app = create_process(app=None, cmd=cmd)
 print_process_info(pid, tid, app)
