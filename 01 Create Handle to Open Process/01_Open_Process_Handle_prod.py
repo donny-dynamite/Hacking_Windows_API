@@ -39,7 +39,6 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # alternative, minimal privileges re
 # Struct Definitions
 # ----------------------------------
 
-
 class PROCESSENTRY32W(ctypes.Structure):
     _fields_ = [
         ("dwSize",              wintypes.DWORD),
@@ -58,7 +57,7 @@ class PROCESSENTRY32W(ctypes.Structure):
 
 
 # ----------------------------------
-# Function Signatures
+# Function Prototypes
 # ----------------------------------
 
 kernel32.CloseHandle.argtypes = [ wintypes.HANDLE, ]  # hObject
