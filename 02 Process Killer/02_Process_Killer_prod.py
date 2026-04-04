@@ -158,9 +158,10 @@ def winerr() -> OSError:
 
 
 def close_handle(handle: wintypes.HANDLE, name: str="Handle") -> None:
-    """ Close open handles, to prevent dangling pointers """
+    """ Close open handles, to avoid resource leaks """
 
     print(f"\n[+] Closing Handle to {name}... ", end='', flush=True)
+
     if handle is None or handle.value == 0:
         raise ValueError(f"[!] Warning: {name} is None or invalid, nothing to close")
 
