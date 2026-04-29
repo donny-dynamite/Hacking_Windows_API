@@ -1,10 +1,10 @@
 """
 Open a handle to an existing process
--------------------------------------
 
+Steps:
+-----
 Process listing/selection/validation via CreateToolhelp32Snapshot()
-- 'snapshot' taken, listing running processes on host
-- subsequent enumeration via Process32FirstW() -> Process32NextW()
+- 'snapshot' of running processes, enumerated via Process32FirstW() -> Process32NextW()
 """
 
 import ctypes
@@ -17,9 +17,9 @@ import msvcrt
 kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
 
 
-# ----------------------------------
-# CONSTANTS
-# ----------------------------------
+# ----------------------------------------
+#             CONSTANTS
+# ----------------------------------------
 
 # kernel32.CreateToolhelp32Snapshot()
 INVALID_HANDLE_VALUE = wintypes.HANDLE(-1)
@@ -33,11 +33,9 @@ PROCESS_ALL_ACCESS = 0x1F0FFF               # likely to fail unless run elevated
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # alternative, minimal privileges required
 
 
-
-
-# ----------------------------------
-# Struct Definitions
-# ----------------------------------
+# ----------------------------------------
+#             Struct Definitions
+# ----------------------------------------
 
 class PROCESSENTRY32W(ctypes.Structure):
     _fields_ = [
@@ -54,11 +52,9 @@ class PROCESSENTRY32W(ctypes.Structure):
 ]
 
 
-
-
-# ----------------------------------
-# Function Prototypes
-# ----------------------------------
+# ----------------------------------------
+#             Function Prototypes
+# ----------------------------------------
 
 kernel32.CloseHandle.argtypes = [ wintypes.HANDLE, ]  # hObject
 kernel32.CloseHandle.restype = wintypes.BOOL
@@ -89,17 +85,15 @@ kernel32.Process32NextW.argtypes=[
 kernel32.Process32NextW.restype = wintypes.BOOL
 
 
+# ----------------------------------------
+#         Function Definitions
+# ----------------------------------------
 
-
-# ----------------------------------
-# Function Definitions
-# ----------------------------------
+# ------------- Misc help functions ---------------------
 
 def winerr() -> OSError:
     """ Return a ctypes.WinError() with the last Windows API error """
     return ctypes.WinError(ctypes.get_last_error())
-
-
 
 
 def close_handle(handle: wintypes.HANDLE, name: str="Handle") -> None:
@@ -115,12 +109,24 @@ def close_handle(handle: wintypes.HANDLE, name: str="Handle") -> None:
         print(f"Successful -> {name} handle: {handle.value}")
 
 
+def key_sort(name: str) -> str:
+    """ Ensure processes sorted alphabetically, regardless of case """
+    return name.casefold()
 
 
-def group_pids_by_process() -> tuple[
-            defaultdict[str, list[int]],
-            dict[int, str]
-]:
+def pause() -> None:
+    """ Pause until user key press (any) """
+    
+    print("\nPress any key to continue (list PIDs by process) ...", end='', flush=True)
+    msvcrt.getch()
+
+
+# ------------- Main functions ---------------------
+
+
+def group_pids_by_process() -> tuple[defaultdict[str, list[int]],
+                                    dict[int, str]
+                                ]:
     """
     Snapshot taken of running processes -> TH32CS_SNAPPROCESS
     - iterated by Process32FirstW -> Process32NextW, until empty
@@ -148,7 +154,7 @@ def group_pids_by_process() -> tuple[
         if not kernel32.Process32FirstW(hSnapshot, ctypes.byref(pe32w)):
             raise winerr()
 
-        print("--> Taking Snapshot of running processes... ", end='', flush=True)
+        print("    -> Taking Snapshot: Running Processes... ", end='', flush=True)
 
         while True:
             name = pe32w.szExeFile      # process name
@@ -165,25 +171,6 @@ def group_pids_by_process() -> tuple[
     return proc_groups, pid_to_proc_map
 
 
-
-
-def key_sort(name: str) -> str:
-    """ Ensure processes sorted alphabetically, regardless of case """
-    return name.casefold()
-
-
-
-
-def pause() -> None:
-    """ Pause until user key press (any) """
-    msg = "\nPress any key to continue (list PIDs by process) ..."
-    print(msg, end='', flush=True)
-    msvcrt.getch()
-    print()
-
-
-
-
 def print_pids_by_process(process_groups: dict[str, list[int]]) -> None:
     """
     Print Process Names -> associated PIDs -> count of PIDs
@@ -191,10 +178,7 @@ def print_pids_by_process(process_groups: dict[str, list[int]]) -> None:
     - PID list truncated if too long (eg svchost.exe)
     """
 
-    # header info
-    print(f"\n{'Process Name':<40} {'PID':<40} {'Count':>5}")
-    print('-' * 87)
-
+    print(f"\n{'Process Name':<40} {'PID':<40} {'Count':>5}\n" + "-" *87)
 
     for process_name in sorted(process_groups.keys(), key=key_sort):
         sorted_pids = sorted(process_groups[process_name])
@@ -211,8 +195,6 @@ def print_pids_by_process(process_groups: dict[str, list[int]]) -> None:
         print(f"{process_name:<40} {pid_list_str:<40} {count:<5}")
 
 
-
-
 def request_pid(pid_map: dict[int, str]) -> int:
     """ Return positive integer -> later validate if actual PID """
     while True:
@@ -225,8 +207,6 @@ def request_pid(pid_map: dict[int, str]) -> int:
                 print("[!] Please enter a positive integer: ")
         except ValueError as e:
             print(f"\n[!] Invalid Input, Error: {e}")
-
-
 
 
 def validate_pid(pid: int, pid_map: dict[int, str]) -> bool:
@@ -242,8 +222,6 @@ def validate_pid(pid: int, pid_map: dict[int, str]) -> bool:
         return False
 
 
-
-
 # ----------------------------------
 # Context Managers
 # ----------------------------------
@@ -252,9 +230,9 @@ def validate_pid(pid: int, pid_map: dict[int, str]) -> bool:
 # - to automatically close handles upon exit
 
 @contextmanager
-def open_process(dwProcessId, dwDesiredAccess=PROCESS_ALL_ACCESS, bInheritHandle=False):
+def get_handle_to_open_process(dwProcessId, dwDesiredAccess=PROCESS_ALL_ACCESS, bInheritHandle=False):
+    
     print(f"\n[+] Opening Handle to process... ", end='', flush=True)
-
     handle = wintypes.HANDLE(kernel32.OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId))
 
     if not handle:
@@ -273,6 +251,7 @@ def open_process(dwProcessId, dwDesiredAccess=PROCESS_ALL_ACCESS, bInheritHandle
 
 @contextmanager
 def snapshot(flags=TH32CS_SNAPPROCESS):
+    
     print("\n[+] Creating handle to Snapshot... ", end='', flush=True)
     hSnapshot = wintypes.HANDLE(kernel32.CreateToolhelp32Snapshot(flags, 0))
 
@@ -288,36 +267,15 @@ def snapshot(flags=TH32CS_SNAPPROCESS):
         hSnapshot.value = 0
 
 
-
-
-##########################################
-##### Main functionality starts here #####
-##########################################
-
 # ----------------------------------
-# Process system snapshot
+#         Main execution block
 # ----------------------------------
 
-# <- proc_groups: defaultdict[str, list[int]]
-# <- pid_map: dict[int, str]
-
+# list processes, pids and selection
 proc_groups, pid_map = group_pids_by_process()
-pause()
-
-# ----------------------------------
-# Manage selection of Process Id
-# ----------------------------------
-
-# Print pids, grouped by process name 
 print_pids_by_process(proc_groups)
-
-# Ask/validate user entered PID <- returns int
 chosen_pid = request_pid(pid_map)
 
-
-# ----------------------------------
-# Open handle to process
-# ----------------------------------
-
-with open_process(chosen_pid) as pHandle:
+# open handle to process
+with get_handle_to_open_process(chosen_pid) as pHandle:
     print("\n--> Do Stuff Here...")
