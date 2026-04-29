@@ -1,23 +1,17 @@
-"""
-Terminate process for a given window title - barebones
-"""
+""" Terminate process for a given window title - barebones """
 
 import ctypes
-from ctypes import wintypes
 
 kernel32 = ctypes.WinDLL('kernel32.dll')
 user32 = ctypes.WinDLL('user32.dll')
 
 # get handle for a Window Title
-lpWindowName = "Untitled - Notepad"
-hWnd = user32.FindWindowW(None, lpWindowName)
+handle_to_window = user32.FindWindowW(None, "Untitled - Notepad")
 
 # get associated process ID
-lpdwProcessId = wintypes.DWORD()
-user32.GetWindowThreadProcessId(hWnd, ctypes.byref(lpdwProcessId))
+pid = ctypes.c_uint32()
+user32.GetWindowThreadProcessId(handle_to_window, ctypes.byref(pid))
 
-# get handle to process
-hProcess = kernel32.OpenProcess(0x1F0FFF, False, lpdwProcessId.value)
-
-# terminate process
-kernel32.TerminateProcess(hProcess, 0)
+# terminate process by handle
+proc_handle = kernel32.OpenProcess(0x1F0FFF, False, pid.value)
+kernel32.TerminateProcess(proc_handle, 0)
