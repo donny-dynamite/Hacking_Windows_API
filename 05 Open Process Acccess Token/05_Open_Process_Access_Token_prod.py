@@ -1,5 +1,5 @@
 """
-Open handle to Access Token for a given process
+(prod) Open handle to Access Token for a given process
 
 Steps:
 ------
