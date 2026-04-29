@@ -1,6 +1,4 @@
-"""
-Spawn cmd.exe using CreateProcessW()
-"""
+""" Spawn cmd.exe using CreateProcessW() """
 
 import ctypes
 from ctypes import wintypes
@@ -9,7 +7,7 @@ kernel32 = ctypes.WinDLL('kernel32.dll', use_last_error=True)
 
 
 # ----------------------------------
-# Struct Definitions -> required by CreateProcessW()
+# Struct Definitions
 # ----------------------------------
 
 class STARTUPINFOW(ctypes.Structure):
@@ -46,13 +44,10 @@ class PROCESS_INFORMATION (ctypes.Structure):
 # Main functionality starts here
 # ----------------------------------
 
-lpApplicationName = r"c:\windows\system32\cmd.exe"
-lpStartupInfo = STARTUPINFOW()
-lpStartupInfo.cb = ctypes.sizeof(STARTUPINFOW)
-lpProcessInformation = PROCESS_INFORMATION()
+app_name = r"c:\windows\system32\cmd.exe"
+si = STARTUPINFOW()
+si.cb = ctypes.sizeof(STARTUPINFOW)
+pi = PROCESS_INFORMATION()
 
-# proper to initialise structs here, but following works
-kernel32.CreateProcessW(lpApplicationName, None, None, None, False, 0x10, None, None, 
-                   ctypes.byref(lpStartupInfo), 
-                   ctypes.byref(lpProcessInformation)
-)
+# create process
+kernel32.CreateProcessW(app_name, None, None, None, False, 0x10, None, None, ctypes.byref(si), ctypes.byref(pi))
