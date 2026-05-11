@@ -13,3 +13,7 @@ Filenames in each folder:
 - all code written utilising the standard python library, with no third-party modules
 - all scripts are stand-alone, where code normally imported (eg via .h header files) is written out in full
 - as such, barebones scripts may be 10 lines where the prod equivalent may be in the hundreds... 🫠
+
+Shoutout:
+- Brandon Dennis, if you ever read this, thank you for teaching me about how to interact with the Windows API with python
+- your work was my inspiration for follow-on education in Process Injection
